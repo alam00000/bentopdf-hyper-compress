@@ -1,0 +1,10 @@
+# sha256 of committed binary artifacts  - regenerate with scripts/manifest.sh
+ef79dc09b8ed18678ab5e6b89e9a42f3da4a682ed5fd736dd38fb3a9286abe9b  core/third_party/jpegli/libhwy.a
+08829d05afbcb10e4a14a395a57cad053f37316835f2a8ed0320a52a277d1045  core/third_party/jpegli/libjpegli-static.a
+280dc068097da3aa7cfeeac8b8c4a6663dab714a580c0c315691a2c8eda12231  core/third_party/jpegli/win-x64/hwy.lib
+8529c4d57174535d146e2e2c04e130e3128ddbc3a3caceb78705213f914f229b  core/third_party/jpegli/win-x64/jpegli-static.lib
+46383af0977b6dbd13584d514e027ef2ed9b70cfc4a0f42ef4010887161ff333  wasm/prebuilt/libhwy.a
+641e7d29f61bce389d6bca4f6a3416dc264ece00e7933a320ec81b16dd5e6352  wasm/prebuilt/libjpegli-static.a
+745f6387443a90cdd66c5d135ee0d67a1b2a8e39df520495124fc857556dc576  wasm/prebuilt/libpdfium.a
+3366d5221c17e8e165a2375daca6dae392543fb440b74053dc33b3f5fc41a1e6  wasm/prebuilt/libqpdf.a
+d38faedf3920d35ca1087e9bc361c53ad77bb175f9d8a9d19ff3b52eb8f289dc  cli/prebuilt/qpdf

@@ -1,0 +1,16 @@
+name: Hyper Compress CodeQL config
+
+paths-ignore:
+  - dist
+  - node_modules
+  - core/third_party
+  - core/patches
+  - core/build/gsrc
+  - wasm/prebuilt
+  - bench/RESULTS.csv
+  - '**/*.min.js'
+  - '**/*.d.ts'
+
+query-filters:
+  - exclude:
+      id: js/log-injection

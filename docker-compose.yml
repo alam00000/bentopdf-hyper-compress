@@ -1,0 +1,12 @@
+services:
+  hyper-compress:
+    image: ghcr.io/alam00000/bentopdf-hyper-compress:latest
+    container_name: hyper-compress
+    restart: unless-stopped
+    ports:
+      - '8080:8080'
+    environment:
+      - HYPER_MAX_UPLOAD_MB=500
+      - HYPER_CONCURRENCY=2
+    tmpfs:
+      - /tmp

@@ -1,0 +1,16 @@
+.git
+node_modules
+dist
+core/build/gsrc
+core/build/out
+core/prebuilt
+cli/prebuilt
+cli/build-work
+wasm/build-work
+wasm/out
+wasm/prebuilt
+docker/build-work
+bench/RESULTS.csv
+bench/MANIFEST.csv
+tests/regression/failset
+fuzz/corpus

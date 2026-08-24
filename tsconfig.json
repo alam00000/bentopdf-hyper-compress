@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "declaration": true,
+    "outDir": "dist",
+    "rootDir": ".",
+    "forceConsistentCasingInFileNames": true,
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "sdk/node/**/*.ts",
+    "cli/bin/**/*.ts",
+    "scripts/**/*.ts",
+    "wasm/*.ts",
+    "tests/**/*.ts",
+    "server/**/*.ts"
+  ]
+}

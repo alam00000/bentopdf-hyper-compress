@@ -1,0 +1,82 @@
+name: 🐛 Bug Report
+description: Report a bug in the Hyper Compress engine
+title: "(Bug) "
+labels: ["bug", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## ⚠️ Important Notice
+        **Bug reports without a sample PDF demonstrating the issue will not be investigated.**
+        The engine's behavior depends almost entirely on the input document — a
+        reproducing file is the report.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Provide a clear and concise description of the bug.
+      placeholder: What happened? What did you expect to happen?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: interface
+    attributes:
+      label: Interface
+      description: How were you running the engine?
+      options:
+        - CLI (hyper)
+        - Node SDK
+        - Docker
+        - WebAssembly / browser
+        - C API (libhypercompress)
+    validations:
+      required: true
+
+  - type: input
+    id: command
+    attributes:
+      label: Exact command or call
+      description: The full CLI command, SDK call, or docker run line, including the preset and any option overrides.
+      placeholder: hyper input.pdf output.pdf --preset high --set brotli=true
+    validations:
+      required: true
+
+  - type: textarea
+    id: sample-file
+    attributes:
+      label: Reproducing PDF
+      description: |
+        Attach a PDF that reproduces the issue. If you cannot share the original,
+        produce a minimal file that still shows the problem. Files attached here
+        may be added to the public regression corpus.
+      placeholder: Drag and drop the file here...
+    validations:
+      required: true
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Output / logs
+      description: CLI output, thrown error, or worker stderr.
+      render: shell
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Engine version (`hyper` release tag, npm version, or docker image tag).
+      placeholder: v0.1.0
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: macOS 15 arm64 / Ubuntu 24.04 x64 / Windows 11
+    validations:
+      required: true

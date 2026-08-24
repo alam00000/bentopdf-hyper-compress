@@ -1,0 +1,238 @@
+# Copyright 2018 The PDFium Authors
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+import("../pdfium.gni")
+import("../testing/test.gni")
+
+declare_args() {
+  hyper_enable_compress = true
+}
+
+if (hyper_enable_compress && (is_win || is_linux)) {
+  # Windows uses win-x64 + a .lib; Linux uses linux-<target_cpu> + a .a (the
+  # shared_library ninja link is the same model on both). The macOS build
+  # instead compiles this shim + links the archives in build-macos.sh's manual
+  # `clang++ -shared`, so it never reaches this gn target.
+  if (is_win) {
+    _hyper_jpegli_dir = "//third_party/jpegli/win-x64"
+    _hyper_jpegli_lib = "$_hyper_jpegli_dir/jpegli-static.lib"
+  } else {
+    _hyper_jpegli_dir = "//third_party/jpegli/linux-$target_cpu"
+    _hyper_jpegli_lib = "$_hyper_jpegli_dir/libjpegli-static.a"
+  }
+  config("hyper_jpegli_wrap_config") {
+    include_dirs = [
+      _hyper_jpegli_dir,             # lib/jpegli/{encode,common,types}.h
+      "$_hyper_jpegli_dir/include",  # jpeglib.h / jconfig.h / jmorecfg.h
+    ]
+  }
+  source_set("hyper_jpegli_wrap") {
+    sources = [ "hyper_jpegli_wrap.cc" ]
+    configs += [ ":hyper_jpegli_wrap_config" ]
+    # NOTE: do NOT also link the prebuilt hwy archive here.  pdfium already
+    # bundles Google Highway in the final link (it exports hwy::SupportedTargets
+    # / GetChosenTarget / DisableTargets / SetSupportedTargetsForTest), so adding
+    # our own libhwy would produce "duplicate symbol" errors.  jpegli-static's
+    # highway references resolve against pdfium's bundled Highway instead  - the
+    # dispatch API is ABI-stable, so the encoder runs correctly against it.
+    libs = [
+      rebase_path(_hyper_jpegli_lib, root_build_dir),
+    ]
+    visibility = [ ":*" ]
+  }
+}
+
+source_set("fpdfsdk") {
+  sources = [
+    "epdf_outline.cpp",
+    "epdf_png_shim.cpp",
+    "epdf_jpeg_shim.cpp",
+    "cpdfsdk_annot.cpp",
+    "cpdfsdk_annot.h",
+    "cpdfsdk_annotiteration.cpp",
+    "cpdfsdk_annotiteration.h",
+    "cpdfsdk_annotiterator.cpp",
+    "cpdfsdk_annotiterator.h",
+    "cpdfsdk_appstream.cpp",
+    "cpdfsdk_appstream.h",
+    "cpdfsdk_baannot.cpp",
+    "cpdfsdk_baannot.h",
+    "cpdfsdk_customaccess.cpp",
+    "cpdfsdk_customaccess.h",
+    "cpdfsdk_filewriteadapter.cpp",
+    "cpdfsdk_filewriteadapter.h",
+    "cpdfsdk_formfillenvironment.cpp",
+    "cpdfsdk_formfillenvironment.h",
+    "cpdfsdk_helpers.cpp",
+    "cpdfsdk_helpers.h",
+    "cpdfsdk_interactiveform.cpp",
+    "cpdfsdk_interactiveform.h",
+    "cpdfsdk_pageview.cpp",
+    "cpdfsdk_pageview.h",
+    "cpdfsdk_pauseadapter.cpp",
+    "cpdfsdk_pauseadapter.h",
+    "cpdfsdk_renderpage.cpp",
+    "cpdfsdk_renderpage.h",
+    "cpdfsdk_widget.cpp",
+    "cpdfsdk_widget.h",
+    "fpdf_annot.cpp",
+    "fpdf_attachment.cpp",
+    "fpdf_catalog.cpp",
+    "fpdf_dataavail.cpp",
+    "fpdf_doc.cpp",
+    "fpdf_doc_pageattrs.cpp",
+    "fpdf_doc_struct.cpp",
+    "fpdf_editimg.cpp",
+    "fpdf_editpage.cpp",
+    "fpdf_editpath.cpp",
+    "fpdf_edittext.cpp",
+    "fpdf_ext.cpp",
+    "fpdf_flatten.cpp",
+    "fpdf_formfill.cpp",
+    "fpdf_javascript.cpp",
+    "fpdf_ppo.cpp",
+    "fpdf_progressive.cpp",
+    "fpdf_save.cpp",
+    "fpdf_searchex.cpp",
+    "fpdf_signature.cpp",
+    "fpdf_structtree.cpp",
+    "fpdf_sysfontinfo.cpp",
+    "fpdf_text.cpp",
+    "fpdf_thumbnail.cpp",
+    "fpdf_transformpage.cpp",
+    "fpdf_view.cpp",
+  ]
+
+  configs += [
+    "../:pdfium_strict_config",
+    "../:pdfium_noshorten_config",
+  ]
+  deps = [
+    "//third_party:png",
+    "//third_party/libjpeg_turbo:libjpeg",
+    "../:pdfium_public_headers",
+    "../constants",
+    "../core/fdrm",
+    "../core/fpdfapi/edit",
+    "../core/fpdfapi/edit:contentstream_write_utils",
+    "../core/fpdfapi/font",
+    "../core/fpdfapi/page",
+    "../core/fpdfapi/parser",
+    "../core/fpdfapi/render",
+    "../core/fpdfdoc",
+    "../core/fpdftext",
+    "../core/fxcodec",
+    "../core/fxcrt",
+    "../core/fxge",
+    "../fxjs",
+    "formfiller",
+    "pwl",
+  ]
+  if (hyper_enable_compress) {
+    sources += [
+      "fpdf_compress.cpp",
+      "fpdf_scanclean.cpp",
+      "hyper_type1_wrap.cc",
+      "hyper_jbig2_wrap.cc",
+    ]
+    deps += [
+      "//third_party/afdko:afdko",
+      "//third_party/jbig2enc:jbig2enc",
+      "//third_party/leptonica:leptonica",
+    ]
+    # Windows + Linux link the jpegli shim + prebuilt archive via gn (mac
+    # compiles the shim separately and links it in build-macos.sh's manual
+    # `clang++ -shared`).
+    if (is_win || is_linux) {
+      deps += [ ":hyper_jpegli_wrap" ]
+    }
+  }
+
+  allow_circular_includes_from = [
+    "../fxjs",
+    "formfiller",
+  ]
+  visibility = [ "../*" ]
+
+  if (pdf_enable_xfa) {
+    deps += [
+      "../xfa/fgas/font",
+      "../xfa/fxfa",
+      "../xfa/fxfa/parser",
+      "fpdfxfa",
+    ]
+    allow_circular_includes_from += [ "fpdfxfa" ]
+  }
+}
+
+pdfium_unittest_source_set("unittests") {
+  sources = [
+    "cpdfsdk_helpers_unittest.cpp",
+    "fpdf_catalog_unittest.cpp",
+    "fpdf_doc_unittest.cpp",
+    "fpdf_edit_unittest.cpp",
+    "fpdf_view_unittest.cpp",
+  ]
+  deps = [
+    ":fpdfsdk",
+    "../:pdfium_public_headers",
+    "../constants",
+    "../core/fpdfapi/page:unit_test_support",
+    "../core/fpdfapi/parser",
+    "../core/fpdfapi/parser:unit_test_support",
+    "../core/fpdfapi/render",
+    "../core/fpdfdoc",
+  ]
+  pdfium_root_dir = "../"
+}
+
+pdfium_embeddertest_source_set("embeddertests") {
+  sources = [
+    "cpdfsdk_annotiterator_embeddertest.cpp",
+    "cpdfsdk_baannot_embeddertest.cpp",
+    "fpdf_annot_embeddertest.cpp",
+    "fpdf_attachment_embeddertest.cpp",
+    "fpdf_catalog_embeddertest.cpp",
+    "fpdf_dataavail_embeddertest.cpp",
+    "fpdf_doc_embeddertest.cpp",
+    "fpdf_edit_embeddertest.cpp",
+    "fpdf_editimg_embeddertest.cpp",
+    "fpdf_editpage_embeddertest.cpp",
+    "fpdf_editpath_embeddertest.cpp",
+    "fpdf_ext_embeddertest.cpp",
+    "fpdf_flatten_embeddertest.cpp",
+    "fpdf_formfill_embeddertest.cpp",
+    "fpdf_javascript_embeddertest.cpp",
+    "fpdf_ppo_embeddertest.cpp",
+    "fpdf_save_embeddertest.cpp",
+    "fpdf_searchex_embeddertest.cpp",
+    "fpdf_signature_embeddertest.cpp",
+    "fpdf_structtree_embeddertest.cpp",
+    "fpdf_sysfontinfo_embeddertest.cpp",
+    "fpdf_text_embeddertest.cpp",
+    "fpdf_thumbnail_embeddertest.cpp",
+    "fpdf_transformpage_embeddertest.cpp",
+    "fpdf_view_c_api_test.c",
+    "fpdf_view_c_api_test.h",
+    "fpdf_view_embeddertest.cpp",
+  ]
+  deps = [
+    ":fpdfsdk",
+    "../constants",
+    "../core/fpdfapi/font",
+    "../core/fpdfapi/page",
+    "../core/fpdfapi/parser",
+    "../core/fxcrt:test_support",
+    "../core/fxge",
+  ]
+  pdfium_root_dir = "../"
+
+  if (pdf_use_skia) {
+    deps += [ "//skia" ]
+  }
+
+  # TODO(crbug.com/40031409): Fix code that adds exit-time destructors and
+  # enable the diagnostic by removing this line.
+  configs = [ "//build/config/compiler:no_exit_time_destructors" ]
+}

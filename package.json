@@ -1,0 +1,39 @@
+{
+  "name": "hyper-compress-engine",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Hyper PDF compression engine (CLI + SDK + WASM)",
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alam00000/bentopdf-hyper-compress.git"
+  },
+  "homepage": "https://github.com/alam00000/bentopdf-hyper-compress",
+  "bugs": {
+    "url": "https://github.com/alam00000/bentopdf-hyper-compress/issues"
+  },
+  "bin": {
+    "hyper": "dist/cli/bin/hyper.js"
+  },
+  "main": "dist/sdk/node/index.js",
+  "types": "dist/sdk/node/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "hyper": "npm run --silent build && node dist/cli/bin/hyper.js",
+    "smoke": "npm run --silent build && node dist/scripts/smoke.js",
+    "test": "npm run --silent build && node --test dist/tests/*.test.js",
+    "lint": "eslint sdk cli/bin scripts tests server wasm/glue.ts web/worker.js web/options-ui.js",
+    "serve": "npm run --silent build && node dist/server/server.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3",
+    "@types/node": "^22.0.0",
+    "eslint": "^10.9.1",
+    "@eslint/js": "^10.0.1",
+    "typescript-eslint": "^8.68.0"
+  }
+}

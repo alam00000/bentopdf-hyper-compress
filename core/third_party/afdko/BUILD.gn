@@ -1,0 +1,110 @@
+config("afdko_warnings") {
+  cflags = [
+    "-Wno-unused-function",
+    "-Wno-unused-variable",
+    "-Wno-unused-but-set-variable",
+    "-Wno-unused-parameter",
+    "-Wno-sign-compare",
+    "-Wno-implicit-int-conversion",
+    "-Wno-deprecated-declarations",
+    "-Wno-bitwise-op-parentheses",
+    "-Wno-shift-op-parentheses",
+    "-Wno-empty-body",
+    "-Wno-format-pedantic",
+    "-Wno-format-security",
+    "-Wno-self-assign",
+    "-Wno-tautological-constant-out-of-range-compare",
+    "-Wno-misleading-indentation",
+    "-Wno-parentheses",
+    "-Wno-pointer-bool-conversion",
+    "-Wno-shorten-64-to-32",
+    "-Wno-int-conversion",
+    "-Wno-format-nonliteral",
+    "-Wno-string-conversion",
+    "-Wno-tautological-overlap-compare",
+    "-Wno-c++-compat",
+    "-Wno-c++11-narrowing",
+    "-Wno-extra-semi",
+    "-Wno-missing-field-initializers",
+    "-Wno-array-bounds",
+    "-Wno-uninitialized",
+    "-Wno-uninitialized-const-pointer",
+    "-Wno-shadow",
+  ]
+}
+
+config("afdko_config") {
+  include_dirs = [
+    "shared/include",
+    "shared",
+    "shared/cffwrite",
+    "shared/absfont",
+    "shared/support",
+    "shared/resource",
+  ]
+  defines = [
+    "AFDKO_VERSION_STRING=\"hyper-internal\"",
+  ]
+
+  if (is_win) {
+    defines += [
+      "CTL_CDECL=__cdecl",
+      "OS=os_windowsNT",
+      "_USE_MATH_DEFINES",
+    ]
+  }
+}
+
+source_set("afdko") {
+  configs += [ ":afdko_warnings", ":afdko_config" ]
+  public_configs = [ ":afdko_config" ]
+  cflags_c = [
+    "-fvisibility=hidden",
+    "-fno-strict-aliasing",
+  ]
+  cflags_cc = [
+    "-fvisibility=hidden",
+    "-fvisibility-inlines-hidden",
+    "-fno-strict-aliasing",
+  ]
+  sources = [
+    "shared/absfont/absfont.cpp",
+    "shared/absfont/absfont_afm.cpp",
+    "shared/absfont/absfont_compare.cpp",
+    "shared/absfont/absfont_desc.cpp",
+    "shared/absfont/absfont_draw.cpp",
+    "shared/absfont/absfont_dump.cpp",
+    "shared/absfont/absfont_metrics.cpp",
+    "shared/absfont/absfont_path.cpp",
+    "shared/cffread.c",
+    "shared/cffread_abs.cpp",
+    "shared/cffwrite/cffwrite.cpp",
+    "shared/cffwrite/cffwrite_charset.cpp",
+    "shared/cffwrite/cffwrite_dict.cpp",
+    "shared/cffwrite/cffwrite_encoding.cpp",
+    "shared/cffwrite/cffwrite_fdselect.cpp",
+    "shared/cffwrite/cffwrite_sindex.cpp",
+    "shared/cffwrite/cffwrite_subr.cpp",
+    "shared/cffwrite/cffwrite_t2cstr.cpp",
+    "shared/cffwrite/cffwrite_varstore.cpp",
+    "shared/ctutil.c",
+    "shared/da.c",
+    "shared/dynarr.c",
+    "shared/goadb.cpp",
+    "shared/namesupport.cpp",
+    "shared/pstoken.cpp",
+    "shared/sfile.cpp",
+    "shared/sfntread.cpp",
+    "shared/sfntwrite.cpp",
+    "shared/sha1.c",
+    "shared/slogger.cpp",
+    "shared/smem.c",
+    "shared/support/except.c",
+    "shared/support/fixed.c",
+    "shared/t1cstr.cpp",
+    "shared/t1read.cpp",
+    "shared/t2cstr.cpp",
+    "shared/varsupport.cpp",
+  ]
+  visibility = [ "//fpdfsdk:*" ]
+}

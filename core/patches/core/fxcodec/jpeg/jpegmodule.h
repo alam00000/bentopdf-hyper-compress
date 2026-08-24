@@ -1,0 +1,71 @@
+// Copyright 2016 The PDFium Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+// Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
+
+#ifndef CORE_FXCODEC_JPEG_JPEGMODULE_H_
+#define CORE_FXCODEC_JPEG_JPEGMODULE_H_
+
+#include <stddef.h>
+#include <stdint.h>
+
+#include <memory>
+#include <optional>
+
+#include "build/build_config.h"
+#include "core/fxcrt/span.h"
+
+#include "core/fxcrt/compiler_specific.h"
+#include "core/fxcrt/retain_ptr.h"
+
+class CFX_DIBBase;
+
+namespace fxcodec {
+
+class ScanlineDecoder;
+
+class JpegModule {
+ public:
+  struct ImageInfo {
+    uint32_t width;
+    uint32_t height;
+    int num_components;
+    int bits_per_components;
+    bool color_transform;
+  };
+
+  // `scale_denom` requests that libjpeg decode the image at a reduced size of
+  // 1/`scale_denom` in each dimension. Must be one of 1, 2, 4, or 8 (libjpeg's
+  // supported power-of-two DCT scalings). The resulting decoder reports the
+  // scaled-down dimensions via GetWidth()/GetHeight().
+  static std::unique_ptr<ScanlineDecoder> CreateDecoder(
+      pdfium::span<const uint8_t> src_span,
+      uint32_t width,
+      uint32_t height,
+      int nComps,
+      bool ColorTransform,
+      uint32_t scale_denom);
+
+  static std::optional<ImageInfo> LoadInfo(
+      pdfium::span<const uint8_t> src_span);
+
+  UNSAFE_BUFFER_USAGE static bool JpegEncode(
+      const RetainPtr<const CFX_DIBBase>& pSource,
+      uint8_t** dest_buf,
+      size_t* dest_size,
+      int quality = 75,
+      int subsample = 0,
+      bool optimize_huffman = false,
+      bool progressive = false);
+
+  JpegModule() = delete;
+  JpegModule(const JpegModule&) = delete;
+  JpegModule& operator=(const JpegModule&) = delete;
+};
+
+}  // namespace fxcodec
+
+using JpegModule = fxcodec::JpegModule;
+
+#endif  // CORE_FXCODEC_JPEG_JPEGMODULE_H_

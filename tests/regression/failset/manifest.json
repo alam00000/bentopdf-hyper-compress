@@ -1,0 +1,170 @@
+[
+  {
+    "file": "govdocs000-a5efe2256efd.pdf",
+    "category": "mixed",
+    "presets": "lossless",
+    "reasons": "lossless-altered-pixels"
+  },
+  {
+    "file": "govdocs000-b5f8a48ca475.pdf",
+    "category": "image-heavy",
+    "presets": "lossless",
+    "reasons": "lossless-altered-pixels"
+  },
+  {
+    "file": "govdocs001-0142b23c0caa.pdf",
+    "category": "forms",
+    "presets": "lossless",
+    "reasons": "lossless-altered-pixels,severe-visual-degradation"
+  },
+  {
+    "file": "govdocs001-0cd94ba1b11a.pdf",
+    "category": "tagged",
+    "presets": "lossless,low,medium,high",
+    "reasons": "lossless-altered-pixels,severe-visual-degradation"
+  },
+  {
+    "file": "govdocs001-18c4fec5985b.pdf",
+    "category": "image-heavy",
+    "presets": "lossless,high",
+    "reasons": "lossless-altered-pixels,severe-visual-degradation"
+  },
+  {
+    "file": "govdocs001-9ffec6ca9b01.pdf",
+    "category": "text",
+    "presets": "lossless",
+    "reasons": "lossless-altered-pixels,severe-visual-degradation"
+  },
+  {
+    "file": "govdocs001-a384abcc170d.pdf",
+    "category": "text",
+    "presets": "lossless,low,medium,high",
+    "reasons": "lossless-altered-pixels,severe-visual-degradation"
+  },
+  {
+    "file": "govdocs001-c626367f9403.pdf",
+    "category": "mixed",
+    "presets": "high",
+    "reasons": "severe-visual-degradation"
+  },
+  {
+    "file": "govdocs001-f7df05867d39.pdf",
+    "category": "forms",
+    "presets": "lossless",
+    "reasons": "lossless-altered-pixels,severe-visual-degradation"
+  },
+  {
+    "file": "govdocs002-070651868b9f.pdf",
+    "category": "image-heavy",
+    "presets": "high",
+    "reasons": "severe-visual-degradation"
+  },
+  {
+    "file": "govdocs002-1ac9d94d3b8c.pdf",
+    "category": "mixed",
+    "presets": "medium,high",
+    "reasons": "severe-visual-degradation"
+  },
+  {
+    "file": "govdocs002-2264f4590319.pdf",
+    "category": "forms",
+    "presets": "medium,high",
+    "reasons": "severe-visual-degradation"
+  },
+  {
+    "file": "govdocs002-257f0d64f330.pdf",
+    "category": "mixed",
+    "presets": "lossless,low,medium,high",
+    "reasons": "unreadable,lossless-altered-pixels,severe-visual-degradation"
+  },
+  {
+    "file": "govdocs002-2fb69d4d9df5.pdf",
+    "category": "mixed",
+    "presets": "high",
+    "reasons": "severe-visual-degradation"
+  },
+  {
+    "file": "govdocs002-436113085dd0.pdf",
+    "category": "text",
+    "presets": "lossless,low,medium,high",
+    "reasons": "lossless-altered-pixels,severe-visual-degradation"
+  },
+  {
+    "file": "govdocs002-53e3e1b9c76d.pdf",
+    "category": "image-heavy",
+    "presets": "lossless",
+    "reasons": "lossless-altered-pixels"
+  },
+  {
+    "file": "govdocs002-5e904129d467.pdf",
+    "category": "forms",
+    "presets": "lossless,low,medium,high",
+    "reasons": "lossless-altered-pixels,severe-visual-degradation"
+  },
+  {
+    "file": "govdocs002-7d8fb27fddb4.pdf",
+    "category": "forms",
+    "presets": "medium,high",
+    "reasons": "severe-visual-degradation"
+  },
+  {
+    "file": "govdocs002-8745c527425a.pdf",
+    "category": "mixed",
+    "presets": "lossless",
+    "reasons": "lossless-altered-pixels"
+  },
+  {
+    "file": "govdocs002-91762c94e23c.pdf",
+    "category": "image-heavy",
+    "presets": "high",
+    "reasons": "severe-visual-degradation"
+  },
+  {
+    "file": "govdocs002-b1883cc51949.pdf",
+    "category": "text",
+    "presets": "lossless",
+    "reasons": "lossless-altered-pixels,severe-visual-degradation"
+  },
+  {
+    "file": "govdocs002-b420506818bc.pdf",
+    "category": "text",
+    "presets": "lossless,low,medium,high",
+    "reasons": "lossless-altered-pixels,severe-visual-degradation"
+  },
+  {
+    "file": "govdocs002-b68b7f52a19b.pdf",
+    "category": "tagged",
+    "presets": "high",
+    "reasons": "severe-visual-degradation"
+  },
+  {
+    "file": "govdocs002-b93042c96bd9.pdf",
+    "category": "text",
+    "presets": "lossless",
+    "reasons": "lossless-altered-pixels"
+  },
+  {
+    "file": "govdocs002-c11fa6fc26ea.pdf",
+    "category": "mixed",
+    "presets": "high",
+    "reasons": "severe-visual-degradation"
+  },
+  {
+    "file": "govdocs002-e1a9a0527d17.pdf",
+    "category": "mixed",
+    "presets": "lossless",
+    "reasons": "lossless-altered-pixels"
+  },
+  {
+    "file": "govdocs002-f1a1b1347d6c.pdf",
+    "category": "mixed",
+    "presets": "lossless,low,medium,high",
+    "reasons": "unreadable,text-layer-lost,lossless-altered-pixels,severe-visual-degradation"
+  },
+  {
+    "file": "govdocs002-f863b80edd5e.pdf",
+    "category": "image-heavy",
+    "presets": "medium,high",
+    "reasons": "severe-visual-degradation"
+  }
+]

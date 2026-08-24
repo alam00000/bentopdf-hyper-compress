@@ -1,0 +1,198 @@
+name: release
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  macos-arm64:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v7
+      - name: depot_tools
+        run: |
+          git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$HOME/depot_tools"
+          echo "$HOME/depot_tools" >> "$GITHUB_PATH"
+      - name: pdfium checkout
+        run: |
+          PIN="$(grep '^PDFIUM_PIN=' core/build/apply-tree.sh | cut -d= -f2)"
+          mkdir -p core/build/gsrc && cd core/build/gsrc
+          gclient config --unmanaged https://pdfium.googlesource.com/pdfium.git
+          gclient sync --revision "pdfium@$PIN" -D --no-history
+      - name: build engine
+        run: |
+          core/build/apply-tree.sh
+          core/build/build-native.sh
+          sdk/native/build-dylib.sh
+      - name: harden
+        run: scripts/harden.sh
+      - name: package
+        run: |
+          mkdir -p out
+          tar -C cli/prebuilt -czf "out/hyper-compress-${GITHUB_REF_NAME}-macos-arm64.tar.gz" \
+            hpdf-worker hpdf-render qpdf
+          tar -C sdk/native/lib -czf "out/libhypercompress-${GITHUB_REF_NAME}-macos-arm64.tar.gz" \
+            libhypercompress.dylib
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos-arm64
+          path: out/*.tar.gz
+
+  linux-x64:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config rsync \
+            python3 xz-utils lsb-release file libjpeg-dev zlib1g-dev
+      - name: depot_tools
+        run: |
+          git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$HOME/depot_tools"
+          echo "$HOME/depot_tools" >> "$GITHUB_PATH"
+      - name: pdfium checkout
+        run: |
+          PIN="$(grep '^PDFIUM_PIN=' core/build/apply-tree.sh | cut -d= -f2)"
+          mkdir -p core/build/gsrc && cd core/build/gsrc
+          gclient config --unmanaged https://pdfium.googlesource.com/pdfium.git
+          gclient sync --revision "pdfium@$PIN" -D --no-history
+      - name: build engine
+        run: |
+          docker/build-jpegli-linux.sh
+          docker/build-linux.sh
+      - name: build qpdf
+        run: cli/build-qpdf.sh
+      - name: package
+        run: |
+          mkdir -p out
+          tar -C cli/prebuilt -czf "out/hyper-compress-${GITHUB_REF_NAME}-linux-x64.tar.gz" \
+            hpdf-worker hpdf-render qpdf
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux-x64
+          path: out/*.tar.gz
+
+  windows-x64:
+    runs-on: windows-2022
+    continue-on-error: true
+    env:
+      DEPOT_TOOLS_WIN_TOOLCHAIN: 0
+    steps:
+      - uses: actions/checkout@v7
+      - name: install windows sdk 10.0.28000.0
+        shell: bash
+        run: |
+          SDK_DIR="/c/Program Files (x86)/Windows Kits/10/bin/10.0.28000.0"
+          if [ ! -d "$SDK_DIR/x64" ]; then
+            curl -sL -o "$TEMP/winsdksetup.exe" 'https://go.microsoft.com/fwlink/?linkid=2370315'
+            MSYS2_ARG_CONV_EXCL="*" "$TEMP/winsdksetup.exe" \
+              /features OptionId.DesktopCPPx64 /ceip off /quiet /norestart
+          fi
+          echo "$SDK_DIR/x64" >> "$GITHUB_PATH"
+      - name: depot_tools
+        shell: bash
+        run: |
+          git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$HOME/depot_tools"
+          echo "$HOME/depot_tools" >> "$GITHUB_PATH"
+      - name: pdfium checkout
+        shell: bash
+        run: |
+          PIN="$(grep '^PDFIUM_PIN=' core/build/apply-tree.sh | cut -d= -f2)"
+          mkdir -p core/build/gsrc && cd core/build/gsrc
+          gclient config --unmanaged https://pdfium.googlesource.com/pdfium.git
+          gclient sync --revision "pdfium@$PIN" -D --no-history
+      - name: build pdfium archive
+        shell: bash
+        run: |
+          core/build/apply-sources.sh core/build/gsrc/pdfium
+          cd core/build/gsrc/pdfium
+          mkdir -p out/win-x64
+          cat > out/win-x64/args.gn <<'ARGS'
+          is_debug = false
+          treat_warnings_as_errors = false
+          pdf_use_skia = false
+          pdf_enable_xfa = false
+          pdf_enable_v8 = false
+          pdf_enable_brotli = true
+          is_component_build = false
+          clang_use_chrome_plugins = false
+          pdf_is_standalone = true
+          pdf_is_complete_lib = true
+          pdf_use_partition_alloc = false
+          symbol_level = 0
+          target_os = "win"
+          target_cpu = "x64"
+          ARGS
+          buildtools/win/gn.exe gen out/win-x64 --root=.
+          third_party/ninja/ninja.exe -C out/win-x64 pdfium
+      - name: link workers
+        shell: bash
+        run: |
+          SRC=core/build/gsrc/pdfium
+          CL="$SRC/third_party/llvm-build/Release+Asserts/bin/clang-cl.exe"
+          LINK="$SRC/third_party/llvm-build/Release+Asserts/bin/lld-link.exe"
+          JP=core/third_party/jpegli/win-x64
+          mkdir -p sdk/native/include/public core/build/out cli/prebuilt
+          rsync -a --delete "$SRC/public/" sdk/native/include/public/ 2>/dev/null || cp -R "$SRC/public/." sdk/native/include/public/
+          "$CL" /nologo /std:c++17 /O2 /DNDEBUG /EHsc -I"$JP" -I"$JP/include" \
+            /c core/src/hyper_jpegli_wrap.cc /Fo:core/build/out/hyper_jpegli_wrap.obj
+          for drv in hpdf_worker hpdf_render; do
+            "$CL" /nologo /std:c++17 /O2 /EHsc -Isdk/native/include \
+              /c "core/driver/$drv.cpp" /Fo:"core/build/out/$drv.obj"
+            "$LINK" /nologo /out:"cli/prebuilt/${drv//_/-}.exe" \
+              "core/build/out/$drv.obj" core/build/out/hyper_jpegli_wrap.obj \
+              /WHOLEARCHIVE:"$SRC/out/win-x64/obj/pdfium.lib" \
+              "$JP/jpegli-static.lib" "$JP/hwy.lib" \
+              user32.lib gdi32.lib advapi32.lib shell32.lib ole32.lib
+          done
+      - name: package
+        shell: bash
+        run: |
+          mkdir -p out
+          tar -C cli/prebuilt -czf "out/hyper-compress-${GITHUB_REF_NAME}-windows-x64.tar.gz" \
+            hpdf-worker.exe hpdf-render.exe
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-x64
+          path: out/*.tar.gz
+
+  docker:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: build and push
+        run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
+          docker build -f docker/Dockerfile -t "$IMAGE:${GITHUB_REF_NAME}" -t "$IMAGE:latest" .
+          docker push "$IMAGE:${GITHUB_REF_NAME}"
+          docker push "$IMAGE:latest"
+
+  release:
+    needs: [macos-arm64, linux-x64, windows-x64]
+    if: always() && needs.macos-arm64.result == 'success' && needs.linux-x64.result == 'success'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: checksums
+        run: |
+          cd artifacts
+          sha256sum *.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+      - name: create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" artifacts/* \
+            --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes

@@ -1,0 +1,34 @@
+name: Trivy Security Scan
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  scan-image:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Pull release image
+        run: docker pull "ghcr.io/${GITHUB_REPOSITORY,,}:latest"
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ghcr.io/${{ github.repository }}:latest
+          format: sarif
+          output: trivy-image.sarif
+          severity: CRITICAL,HIGH
+          exit-code: '0'
+
+      - name: Upload results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-image.sarif
