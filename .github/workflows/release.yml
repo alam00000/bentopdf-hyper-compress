@@ -152,7 +152,7 @@ jobs:
               "core/build/out/$drv.obj" core/build/out/hyper_jpegli_wrap.obj \
               /WHOLEARCHIVE:"$SRC/out/win-x64/obj/pdfium.lib" \
               "$JP/jpegli-static.lib" "$JP/hwy.lib" \
-              user32.lib gdi32.lib advapi32.lib shell32.lib ole32.lib
+              user32.lib gdi32.lib advapi32.lib shell32.lib ole32.lib ws2_32.lib
           done
       - name: package
         shell: bash
