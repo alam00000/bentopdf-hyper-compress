@@ -108,6 +108,7 @@ jobs:
           pdf_is_standalone = true
           pdf_is_complete_lib = true
           pdf_use_partition_alloc = false
+          use_custom_libcxx = false
           symbol_level = 0
           target_os = "win"
           target_cpu = "x64"
@@ -123,6 +124,8 @@ jobs:
           CL="$SRC/third_party/llvm-build/Release+Asserts/bin/clang-cl.exe"
           LINK="$SRC/third_party/llvm-build/Release+Asserts/bin/lld-link.exe"
           JP=core/third_party/jpegli/win-x64
+          NM="$SRC/third_party/llvm-build/Release+Asserts/bin/llvm-nm.exe"
+          "$NM" "$SRC/out/win-x64/obj/pdfium.lib" 2>/dev/null | grep -c 'T HyperCompress' || echo "no HyperCompress symbols in pdfium.lib"
           mkdir -p sdk/native/include/public core/build/out cli/prebuilt
           cp -R "$SRC/public/." sdk/native/include/public/
           "$CL" /nologo /std:c++17 /O2 /DNDEBUG /EHsc -I"$JP" -I"$JP/include" \
@@ -143,3 +146,30 @@ jobs:
           cli/prebuilt/hpdf-worker.exe tests/regression/failset/govdocs001-0142b23c0caa.pdf out.pdf 1=150 2=50
           head -c 4 out.pdf | grep -q '%PDF'
           echo "worker compressed a real PDF: $(stat -c%s tests/regression/failset/govdocs001-0142b23c0caa.pdf) -> $(stat -c%s out.pdf) bytes"
+
+  docker:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: build image
+        run: docker build -f docker/Dockerfile -t hyper-compress:test .
+      - name: verify serve mode
+        run: |
+          docker run -d --name hc -p 8080:8080 hyper-compress:test
+          ok=0
+          for i in $(seq 1 30); do
+            if curl -sf localhost:8080/healthz >/dev/null; then ok=1; break; fi
+            sleep 2
+          done
+          [ "$ok" = 1 ] || { docker logs hc; exit 1; }
+          curl -sf localhost:8080/healthz
+          curl -sf -o /tmp/out.pdf --data-binary @tests/regression/failset/govdocs001-0142b23c0caa.pdf 'localhost:8080/api/compress?preset=medium'
+          head -c 4 /tmp/out.pdf | grep -q '%PDF'
+          echo "serve mode compressed a real PDF: $(stat -c%s /tmp/out.pdf) bytes"
+      - name: verify cli mode
+        run: |
+          mkdir -p /tmp/work && chmod 777 /tmp/work
+          cp tests/regression/failset/govdocs001-0142b23c0caa.pdf /tmp/work/in.pdf
+          docker run --rm -v /tmp/work:/work hyper-compress:test in.pdf out.pdf --preset high
+          head -c 4 /tmp/work/out.pdf | grep -q '%PDF'
+          echo "cli mode compressed a real PDF: $(stat -c%s /tmp/work/out.pdf) bytes"
