@@ -5,6 +5,6 @@ RUN git clone --depth 1 \
     /opt/depot_tools
 ENV PATH="/opt/depot_tools:${PATH}"
 
-RUN git clone --depth 1 $MAIN_REPO_URL $SRC/hyper-compress
+RUN git clone --depth 1 https://github.com/alam00000/bentopdf-hyper-compress.git $SRC/hyper-compress
 WORKDIR $SRC/hyper-compress
 COPY build.sh $SRC/
