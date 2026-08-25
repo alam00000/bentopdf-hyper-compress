@@ -3,6 +3,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 CORE="$(cd "$HERE/.." && pwd)"
 SRC="${1:?usage: apply-sources.sh <pdfium-checkout>}"
+SRC="$(cd "$SRC" && pwd)"
 PATCHES="$CORE/patches"
 [ -d "$SRC" ] || { echo "ERROR: $SRC missing."; exit 1; }
 [ -d "$PATCHES" ] || { echo "ERROR: $PATCHES missing."; exit 1; }
