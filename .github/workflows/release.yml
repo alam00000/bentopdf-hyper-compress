@@ -123,6 +123,7 @@ jobs:
           pdf_is_standalone = true
           pdf_is_complete_lib = true
           pdf_use_partition_alloc = false
+          use_custom_libcxx = false
           symbol_level = 0
           target_os = "win"
           target_cpu = "x64"
@@ -138,6 +139,8 @@ jobs:
           CL="$SRC/third_party/llvm-build/Release+Asserts/bin/clang-cl.exe"
           LINK="$SRC/third_party/llvm-build/Release+Asserts/bin/lld-link.exe"
           JP=core/third_party/jpegli/win-x64
+          NM="$SRC/third_party/llvm-build/Release+Asserts/bin/llvm-nm.exe"
+          "$NM" "$SRC/out/win-x64/obj/pdfium.lib" 2>/dev/null | grep -c 'T HyperCompress' || echo "no HyperCompress symbols in pdfium.lib"
           mkdir -p sdk/native/include/public core/build/out cli/prebuilt
           rsync -a --delete "$SRC/public/" sdk/native/include/public/ 2>/dev/null || cp -R "$SRC/public/." sdk/native/include/public/
           "$CL" /nologo /std:c++17 /O2 /DNDEBUG /EHsc -I"$JP" -I"$JP/include" \
