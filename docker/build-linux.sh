@@ -66,7 +66,7 @@ ENGINE_O="$SRC/$OUTDIR/obj/fpdfsdk/fpdfsdk/fpdf_compress.o"
 [ -f "$ENGINE_O" ] || { echo "ERROR: $ENGINE_O not produced." >&2; exit 1; }
 NM="$SRC/third_party/llvm-build/Release+Asserts/bin/llvm-nm"
 [ -x "$NM" ] || NM=nm
-if ! "$NM" "$ENGINE_O" | grep -q 'T HyperCompress_Execute'; then
+if ! "$NM" "$ENGINE_O" | grep 'T HyperCompress_Execute' >/dev/null; then
   echo "ERROR: engine object does not export HyperCompress_*." >&2
   "$NM" --version >&2 || true
   "$NM" "$ENGINE_O" | grep -i 'hypercompress' >&2 || echo "  (no HyperCompress symbols at all)" >&2

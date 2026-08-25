@@ -131,6 +131,8 @@ jobs:
           third_party/ninja/ninja.exe -C out/win-x64 pdfium
       - name: link workers
         shell: bash
+        env:
+          MSYS2_ARG_CONV_EXCL: '*'
         run: |
           SRC=core/build/gsrc/pdfium
           CL="$SRC/third_party/llvm-build/Release+Asserts/bin/clang-cl.exe"
