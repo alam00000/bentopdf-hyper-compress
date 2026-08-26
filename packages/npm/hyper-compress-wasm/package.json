@@ -1,0 +1,43 @@
+{
+  "name": "hyper-compress-wasm",
+  "version": "0.1.0",
+  "description": "Hyper Compress PDF engine compiled to WebAssembly. Runs on any platform, no native binaries.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "lib",
+    "engine"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alam00000/bentopdf-hyper-compress.git"
+  },
+  "homepage": "https://github.com/alam00000/bentopdf-hyper-compress#readme",
+  "bugs": {
+    "url": "https://github.com/alam00000/bentopdf-hyper-compress/issues"
+  },
+  "keywords": [
+    "pdf",
+    "compress",
+    "compression",
+    "wasm",
+    "webassembly",
+    "pdfium",
+    "optimize",
+    "shrink"
+  ]
+}

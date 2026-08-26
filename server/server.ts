@@ -15,8 +15,25 @@ const TIMEOUT_MS = Number(process.env.HYPER_TIMEOUT_MS ?? 600_000);
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const INDEX_HTML = (() => {
-  for (const p of [path.join(HERE, 'index.html'), path.resolve(HERE, '..', '..', 'server', 'index.html')]) {
-    if (fs.existsSync(p)) return fs.readFileSync(p);
+  for (const p of [
+    path.resolve(HERE, '..', '..', 'web', 'index.html'),
+    path.resolve(HERE, '..', '..', '..', 'web', 'index.html'),
+  ]) {
+    if (!fs.existsSync(p)) continue;
+    const page = fs
+      .readFileSync(p, 'utf8')
+      .replace('href="./app.css"', 'href="/web/app.css"')
+      .replace('<div id="status">Loading engine...</div>', '<div id="status"></div>')
+      .replace("import { initApp } from './app.js';", "import { initApp } from '/web/app.js';")
+      .replace(
+        "import { createWasmEngine } from './engine-wasm.js';",
+        "import { createHttpEngine } from '/web/engine-http.js';",
+      )
+      .replace('initApp(createWasmEngine);', 'initApp(createHttpEngine);');
+    if (!page.includes('engine-http.js') || page.includes('createWasmEngine')) {
+      throw new Error('web/index.html changed shape; update the server transform in server.ts');
+    }
+    return Buffer.from(page);
   }
   return Buffer.from('<h1>Hyper Compress</h1><p>POST a PDF to /api/compress</p>');
 })();
@@ -68,11 +85,13 @@ function sendJson(res: http.ServerResponse, status: number, body: object): void 
 }
 
 async function handleCompress(req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<void> {
-  const preset = (url.searchParams.get('preset') ?? 'medium') as CompressLevel;
-  if (!PRESETS.includes(preset)) {
-    sendJson(res, 400, { error: 'bad_preset', presets: PRESETS });
+  const presetRaw = url.searchParams.get('preset') ?? 'medium';
+  const custom = presetRaw === 'custom';
+  if (!custom && !PRESETS.includes(presetRaw as CompressLevel)) {
+    sendJson(res, 400, { error: 'bad_preset', presets: [...PRESETS, 'custom'] });
     return;
   }
+  const preset = custom ? undefined : (presetRaw as CompressLevel);
   const targetRaw = url.searchParams.get('targetSizeBytes');
   const targetSizeBytes = targetRaw ? Number(targetRaw) : undefined;
   if (targetRaw && !(targetSizeBytes! > 0)) {
@@ -96,6 +115,10 @@ async function handleCompress(req: http.IncomingMessage, res: http.ServerRespons
       sendJson(res, 400, { error: 'bad_options' });
       return;
     }
+  }
+  if (custom && !overrides) {
+    sendJson(res, 400, { error: 'options_required' });
+    return;
   }
   const password = req.headers['x-password'];
 
@@ -142,6 +165,7 @@ async function handleCompress(req: http.IncomingMessage, res: http.ServerRespons
       'x-signed': String(r.signed),
       'x-pdfa': r.pdfa ? `${r.pdfa.part}${r.pdfa.conformance}` : '',
       'x-met-target': r.metTarget === null ? '' : String(r.metTarget),
+      'x-warnings': r.warnings.length ? encodeURIComponent(JSON.stringify(r.warnings)) : '',
     });
     res.end(out);
   } catch (e) {
@@ -168,14 +192,17 @@ const server = http.createServer((req, res) => {
     sendJson(res, 200, { ok: true, active, queued: waiting.length });
     return;
   }
-  if (req.method === 'GET' && /^\/(dist|web)\/[A-Za-z0-9/_-]+\.js$/.test(url.pathname)) {
+  if (req.method === 'GET' && /^\/(dist|web)\/[A-Za-z0-9/_-]+\.(js|css|woff2)$/.test(url.pathname)) {
     const ROOT = path.resolve(HERE, '..', '..');
     const target = path.resolve(ROOT, '.' + url.pathname);
     if (target.startsWith(path.join(ROOT, 'dist') + path.sep) ||
         target.startsWith(path.join(ROOT, 'web') + path.sep)) {
       fs.readFile(target, (err, buf) => {
         if (err) { sendJson(res, 404, { error: 'not_found' }); return; }
-        res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'content-length': buf.length });
+        const type = target.endsWith('.css') ? 'text/css; charset=utf-8'
+          : target.endsWith('.woff2') ? 'font/woff2'
+          : 'text/javascript; charset=utf-8';
+        res.writeHead(200, { 'content-type': type, 'content-length': buf.length });
         res.end(buf);
       });
       return;

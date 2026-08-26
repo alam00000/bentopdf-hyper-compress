@@ -13,7 +13,7 @@ are pinned as regression seeds in `fuzz/corpus/`.
 
 ## Reporting a vulnerability
 
-Report vulnerabilities privately to contact@bentopdf.com — do not open a
+Report vulnerabilities privately to contact@bentopdf.com; do not open a
 public issue. Include a minimal reproducing PDF where possible. You should hear
 back within a few days.
 

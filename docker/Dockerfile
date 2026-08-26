@@ -33,8 +33,8 @@ WORKDIR /engine
 COPY --from=app /engine/dist dist
 COPY --from=app /engine/node_modules node_modules
 COPY --from=app /engine/package.json package.json
-COPY server/index.html dist/server/index.html
-COPY web/options-ui.js web/options-ui.js
+COPY web/index.html web/options-ui.js web/app.js web/app.css web/engine-http.js web/
+COPY web/fonts web/fonts
 COPY docker/entrypoint.sh /entrypoint.sh
 COPY --from=native /engine/cli/prebuilt/hpdf-worker /engine/cli/prebuilt/hpdf-render cli/prebuilt/
 ENV HYPER_QPDF=/usr/bin/qpdf

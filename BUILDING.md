@@ -12,6 +12,13 @@ make check        # typecheck, lint, unit tests, version lock
 Without built native workers the integration tests skip and everything else
 still runs, so this works on a bare checkout.
 
+Two TypeScript compilers are installed on purpose: the build compiles with
+TypeScript 7 through the `tsc7` npm alias (`node node_modules/tsc7/bin/tsc`,
+wired into the `build` and `typecheck` scripts), while `typescript` stays on 6
+because `typescript-eslint` does not accept 7 yet. Keep both until
+`typescript-eslint` supports TypeScript 7, then collapse to one and drop the
+alias.
+
 ## The native engine
 
 The engine compiles into a pinned Google PDFium checkout as extra translation
@@ -19,7 +26,7 @@ units in the `fpdfsdk` source set: `fpdf_compress.cpp` (the engine),
 `hyper_type1_wrap.cc` and `hyper_jbig2_wrap.cc` (Type 1 and JBIG2 helpers),
 and `hyper_generic_cmyk_icc.h` (embedded ICC data), with deps on the vendored
 `core/third_party/{afdko,jbig2enc,leptonica}`. `hyper_jpegli_wrap.cc` is not
-in the source set — it uses jpegli's native headers and is compiled and linked
+in the source set; it uses jpegli's native headers and is compiled and linked
 separately against `core/third_party/jpegli/{libjpegli-static.a,libhwy.a}`.
 
 The pin lives in `core/build/apply-tree.sh` as `PDFIUM_PIN`
@@ -63,29 +70,29 @@ core/build/build-native.sh
 
 Full-file copies authored against the pinned revision:
 
-- `core/fxcodec/flate/flatemodule.cpp` — Flate encode at zlib level 9.
-- `core/fxcodec/fax/*`, `core/fxcodec/jpeg/*` — un-gate FaxEncode/JpegEncode
+- `core/fxcodec/flate/flatemodule.cpp`: Flate encode at zlib level 9.
+- `core/fxcodec/fax/*`, `core/fxcodec/jpeg/*`: un-gate FaxEncode/JpegEncode
   from Windows-only, add quality/subsample/huffman/progressive JPEG options.
-- `core/fpdfapi/edit/cpdf_creator.cpp` — incremental-save fixes for the
+- `core/fpdfapi/edit/cpdf_creator.cpp`: incremental-save fixes for the
   signed-document passthrough.
 - `core/fpdfapi/edit/cpdf_pagecontentgenerator.*`, `cpdf_pagecontentmanager.*`,
-  `core/fpdfapi/page/cpdf_pageobjectholder.*`, `cpdf_form.*` — single
+  `core/fpdfapi/page/cpdf_pageobjectholder.*`, `cpdf_form.*`; single
   content-stream regeneration, the resource-pruning soundness guard, and a
   null-resource-dict crash guard.
 - `core/fpdfapi/page/cpdf_color.*`, `cpdf_colorspace.h`, `cpdf_basedcs.h`,
-  `cpdf_pattern.h` — accessors for colour re-emission. Upstream's content
+  `cpdf_pattern.h`; accessors for colour re-emission. Upstream's content
   writer only expresses DeviceRGB/Gray; the generator patch re-emits
   DeviceCMYK, patterns, and every array-backed colourspace (CalRGB, CalGray,
   Lab, ICCBased, Separation, DeviceN, Indexed) during regeneration.
-- `core/fpdfapi/page/cpdf_image.*` — in-place image stream replacement.
-- `fpdfsdk/BUILD.gn` — folds the engine and vendored libraries into the
+- `core/fpdfapi/page/cpdf_image.*`: in-place image stream replacement.
+- `fpdfsdk/BUILD.gn`: folds the engine and vendored libraries into the
   `fpdfsdk` source set behind `hyper_enable_compress`.
 
 ### Bumping the pin
 
 Edit `PDFIUM_PIN` in `apply-tree.sh`, `gclient sync --revision pdfium@<new>`
 in `core/build/gsrc`, re-run `apply-tree.sh`, and re-check every file in
-`core/patches/` against the new upstream — they are full-file copies, so
+`core/patches/` against the new upstream; they are full-file copies, so
 upstream drift in those files must be re-merged by hand.
 
 ### Header staging
@@ -119,7 +126,7 @@ for the per-platform release builds.
 ## Other platforms
 
 The checked build recipe is macOS arm64. Linux x64 builds the same way with
-`target_os="linux"` in `args.gn` — `docker/Dockerfile` and
+`target_os="linux"` in `args.gn`; `docker/Dockerfile` and
 `oss-fuzz/projects/hyper-compress/build.sh` both script it end to end. Windows needs a PDFium
 Windows build with the same source-set additions plus the platform link step;
 the leptonica and afdko overlays already carry the clang-cl fixes.

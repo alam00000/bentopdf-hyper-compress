@@ -1,0 +1,102 @@
+name: npm-publish
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - name: update npm for trusted publishing
+        run: npm install -g npm@latest
+      - name: verify version matches the release tag
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          PKG="$(node -p "require('./package.json').version")"
+          [ "v$PKG" = "$TAG" ] || { echo "package.json $PKG does not match tag $TAG"; exit 1; }
+      - name: stamp package versions from the tag
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          node - <<'EOF'
+          const fs = require('fs');
+          const version = process.env.TAG.replace(/^v/, '');
+          for (const dir of fs.readdirSync('packages/npm')) {
+            const p = `packages/npm/${dir}/package.json`;
+            const pkg = JSON.parse(fs.readFileSync(p, 'utf8'));
+            pkg.version = version;
+            fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + '\n');
+            console.log(`${pkg.name} -> ${version}`);
+          }
+          const root = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          for (const name of Object.keys(root.optionalDependencies ?? {})) {
+            root.optionalDependencies[name] = version;
+          }
+          fs.writeFileSync('package.json', JSON.stringify(root, null, 2) + '\n');
+          EOF
+      - name: build
+        run: |
+          npm ci
+          npm run build
+      - name: populate packages from release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          mkdir -p rel
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern 'hyper-compress-*.tar.gz' --dir rel
+          extract() {
+            local suffix="$1" dest="$2" file
+            file=$(find rel -name "hyper-compress-*-$suffix.tar.gz" | head -1)
+            if [ -n "$file" ]; then
+              mkdir -p "$dest"
+              tar -xzf "$file" -C "$dest"
+              echo "populated $dest from $file"
+            else
+              echo "NOTE: no $suffix asset on this release; that package will be skipped"
+            fi
+          }
+          extract macos-arm64 packages/npm/hyper-compress-darwin-arm64/bin
+          extract linux-x64 packages/npm/hyper-compress-linux-x64/bin
+          extract windows-x64 packages/npm/hyper-compress-win32-x64/bin
+          extract wasm wasm/out
+          chmod +x packages/npm/*/bin/* 2>/dev/null || true
+          if [ -f wasm/out/hyper-compress.wasm ]; then
+            bash scripts/pack-wasm-npm.sh
+          fi
+          for d in hyper-compress-darwin-arm64 hyper-compress-linux-x64 hyper-compress-win32-x64; do
+            cp LICENSE "packages/npm/$d/LICENSE"
+          done
+      - name: publish engine packages
+        run: |
+          published=0
+          for d in hyper-compress-darwin-arm64 hyper-compress-linux-x64 hyper-compress-win32-x64; do
+            if [ -n "$(find "packages/npm/$d/bin" -type f ! -name .gitkeep 2>/dev/null | head -1)" ]; then
+              (cd "packages/npm/$d" && npm publish --provenance --access public)
+              published=$((published + 1))
+            else
+              echo "skipping $d: no binaries"
+            fi
+          done
+          if [ -f packages/npm/hyper-compress-wasm/engine/hyper-compress.wasm ]; then
+            (cd packages/npm/hyper-compress-wasm && npm publish --provenance --access public)
+            published=$((published + 1))
+          else
+            echo "skipping hyper-compress-wasm: no engine asset"
+          fi
+          [ "$published" -gt 0 ] || { echo "no engine packages could be published"; exit 1; }
+      - name: use the npm readme
+        run: cp docs/npm-README.md README.md
+      - name: publish main package
+        run: npm publish --provenance --access public --ignore-scripts

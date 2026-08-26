@@ -12,6 +12,9 @@ export interface HyperCompressOptions {
   subsetFonts: boolean;
   removeStandardFonts: boolean;
   unembedAliasedFonts: boolean;
+  rasterizePages: boolean;
+  rasterizeDpi: number;
+  rasterizeQuality: number;
   mergeFonts: boolean;
   removeAnnots: boolean;
   flattenForms: boolean;
@@ -48,6 +51,9 @@ export function normalizeHyperOptions(raw: unknown): HyperCompressOptions {
     subsetFonts: bool(a.subsetFonts, false),
     removeStandardFonts: bool(a.removeStandardFonts, false),
     unembedAliasedFonts: bool(a.unembedAliasedFonts, false),
+    rasterizePages: bool(a.rasterizePages, false),
+    rasterizeDpi: clamp(a.rasterizeDpi, 36, 600, 150),
+    rasterizeQuality: clamp(a.rasterizeQuality, 1, 100, 50),
     mergeFonts: bool(a.mergeFonts, false),
     removeAnnots: bool(a.removeAnnots, false),
     flattenForms: bool(a.flattenForms, false),
@@ -101,6 +107,9 @@ export function buildHyperTokens(o: HyperCompressOptions): string[] {
   if (o.removeSpiderInfo) mask |= 0x80000;
   if (o.removeOutputIntents) mask |= 0x4000;
   if (mask) tokens.push(`20=${mask}`);
+  if (o.rasterizePages) {
+    tokens.push('60=1', `61=${o.rasterizeDpi}`, `62=${o.rasterizeQuality}`);
+  }
   if (o.preserveConformance) tokens.push('64=3');
   if (o.brotli && !o.preserveConformance) tokens.push('65=1', '66=11');
   return tokens;

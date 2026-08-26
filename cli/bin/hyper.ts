@@ -3,12 +3,12 @@ import { compress } from '../../sdk/node/engine.js';
 import type { CompressLevel } from '../../sdk/node/presets.js';
 
 export interface Parsed {
-  input?: string;
-  output?: string;
+  input?: string | undefined;
+  output?: string | undefined;
   preset: CompressLevel;
   password: string | null;
   overrides: Record<string, number | boolean>;
-  targetSizeBytes?: number;
+  targetSizeBytes?: number | undefined;
 }
 
 const PRESETS: readonly CompressLevel[] = ['low', 'medium', 'high', 'lossless'];
@@ -27,6 +27,7 @@ export function parse(argv: string[]): Parsed {
   const positional: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
+    if (a === undefined) continue;
     if (a === '--preset') {
       const v = argv[++i] as CompressLevel;
       if (!PRESETS.includes(v)) usage();
@@ -38,7 +39,7 @@ export function parse(argv: string[]): Parsed {
     } else if (a === '--target-size') {
       const raw = (argv[++i] ?? '').trim();
       const m = /^([0-9]+(?:\.[0-9]+)?)\s*(kb|mb|k|m|b)?$/i.exec(raw);
-      if (!m) usage();
+      if (!m || m[1] === undefined) usage();
       const unit = (m[2] ?? 'b').toLowerCase();
       const mult = unit.startsWith('k') ? 1024 : unit.startsWith('m') ? 1024 * 1024 : 1;
       p.targetSizeBytes = Math.floor(Number(m[1]) * mult);
@@ -73,6 +74,9 @@ async function main(): Promise<void> {
     options: p.overrides as never,
     targetSizeBytes: p.targetSizeBytes,
   });
+  for (const w of res.warnings) {
+    process.stderr.write(`warning: ${w}\n`);
+  }
   const pct =
     res.originalSize > 0
       ? Math.round((1 - res.compressedSize / res.originalSize) * 100)

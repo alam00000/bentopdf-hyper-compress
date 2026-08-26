@@ -13,11 +13,11 @@ export function formatPdfaLevel(level: PdfaLevel): string {
 
 export function parsePdfaFromXmp(xmp: string): PdfaLevel | null {
   const part = xmp.match(/pdfaid:part\s*(?:=\s*["']|>)\s*([0-9])/);
-  if (!part) return null;
+  if (!part || part[1] === undefined) return null;
   const conf = xmp.match(/pdfaid:conformance\s*(?:=\s*["']|>)\s*([A-Za-z])/);
   return {
     part: Number(part[1]),
-    conformance: conf ? conf[1].toLowerCase() : '',
+    conformance: conf?.[1] ? conf[1].toLowerCase() : '',
   };
 }
 
@@ -40,6 +40,8 @@ export function conformanceSafeOptions(
   safe.removeOutputIntents = false;
 
   safe.flattenIcc = false;
+
+  safe.rasterizePages = false;
 
   if (level.part === 1) {
     safe.preferJpx = false;
@@ -70,7 +72,7 @@ export function restoreHeaderVersion(source: Uint8Array, output: Uint8Array): Ui
   const readHeader = (b: Uint8Array) => {
     if (b.length < 8) return '';
     let s = '';
-    for (let i = 0; i < 8; i++) s += String.fromCharCode(b[i]);
+    for (let i = 0; i < 8; i++) s += String.fromCharCode(b[i] ?? 0);
     return s;
   };
   const from = readHeader(source);

@@ -1,0 +1,19 @@
+{
+  "name": "hyper-compress-darwin-arm64",
+  "version": "0.1.0",
+  "description": "Prebuilt Hyper Compress engine binaries for darwin arm64",
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alam00000/bentopdf-hyper-compress.git"
+  },
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "files": [
+    "bin"
+  ]
+}

@@ -29,6 +29,10 @@ jobs:
           sdk/native/build-dylib.sh
       - name: harden
         run: scripts/harden.sh
+      - name: build wasm
+        run: |
+          brew install emscripten
+          wasm/build-wasm.sh
       - name: package
         run: |
           mkdir -p out
@@ -36,6 +40,8 @@ jobs:
             hpdf-worker hpdf-render qpdf
           tar -C sdk/native/lib -czf "out/libhypercompress-${GITHUB_REF_NAME}-macos-arm64.tar.gz" \
             libhypercompress.dylib
+          tar -C wasm/out -czf "out/hyper-compress-${GITHUB_REF_NAME}-wasm.tar.gz" \
+            hyper-compress.js hyper-compress.wasm
       - uses: actions/upload-artifact@v7
         with:
           name: macos-arm64
@@ -154,12 +160,23 @@ jobs:
               "$JP/jpegli-static.lib" "$JP/hwy.lib" \
               user32.lib gdi32.lib advapi32.lib shell32.lib ole32.lib ws2_32.lib
           done
+      - name: bundle qpdf
+        shell: bash
+        run: |
+          QPDF_VERSION=12.3.2
+          QPDF_SHA256=8941870a604e7c87ed24566b038d46c24ce76616254d2383c578f60c0677f202
+          curl -sL -o qpdf.zip "https://github.com/qpdf/qpdf/releases/download/v$QPDF_VERSION/qpdf-$QPDF_VERSION-msvc64.zip"
+          echo "$QPDF_SHA256  qpdf.zip" | sha256sum -c -
+          tar -xf qpdf.zip
+          cp "qpdf-$QPDF_VERSION-msvc64/bin/qpdf.exe" "qpdf-$QPDF_VERSION-msvc64/bin/"*.dll cli/prebuilt/
       - name: package
         shell: bash
         run: |
           mkdir -p out
           tar -C cli/prebuilt -czf "out/hyper-compress-${GITHUB_REF_NAME}-windows-x64.tar.gz" \
-            hpdf-worker.exe hpdf-render.exe
+            hpdf-worker.exe hpdf-render.exe qpdf.exe qpdf30.dll concrt140.dll \
+            msvcp140.dll msvcp140_1.dll msvcp140_2.dll msvcp140_atomic_wait.dll \
+            msvcp140_codecvt_ids.dll vcruntime140.dll vcruntime140_1.dll
       - uses: actions/upload-artifact@v7
         with:
           name: windows-x64

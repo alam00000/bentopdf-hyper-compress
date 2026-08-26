@@ -1,8 +1,8 @@
 {
-  "name": "hyper-compress-engine",
+  "name": "hyper-compress",
   "version": "0.1.0",
   "type": "module",
-  "description": "Hyper PDF compression engine (CLI + SDK + WASM)",
+  "description": "High-fidelity, content-preserving PDF compression engine",
   "license": "AGPL-3.0-only",
   "repository": {
     "type": "git",
@@ -18,22 +18,50 @@
   "main": "dist/sdk/node/index.js",
   "types": "dist/sdk/node/index.d.ts",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "node node_modules/tsc7/bin/tsc -p tsconfig.json",
+    "typecheck": "node node_modules/tsc7/bin/tsc -p tsconfig.json --noEmit",
     "hyper": "npm run --silent build && node dist/cli/bin/hyper.js",
     "smoke": "npm run --silent build && node dist/scripts/smoke.js",
     "test": "npm run --silent build && node --test dist/tests/*.test.js",
-    "lint": "eslint sdk cli/bin scripts tests server wasm/glue.ts web/worker.js web/options-ui.js",
-    "serve": "npm run --silent build && node dist/server/server.js"
+    "lint": "eslint sdk cli/bin scripts tests server wasm/glue.ts wasm/sdk.ts packages/npm/hyper-compress-wasm/index.js packages/npm/hyper-compress-wasm/index.d.ts web/worker.js web/options-ui.js web/app.js web/engine-wasm.js web/engine-http.js",
+    "serve": "npm run --silent build && node dist/server/server.js",
+    "prepublishOnly": "npm run build"
   },
   "engines": {
     "node": ">=22"
   },
   "devDependencies": {
-    "typescript": "^6.0.3",
+    "@eslint/js": "^10.0.1",
     "@types/node": "^22.0.0",
     "eslint": "^10.9.1",
-    "@eslint/js": "^10.0.1",
+    "tsc7": "npm:typescript@^7.0.2",
+    "typescript": "^6.0.3",
     "typescript-eslint": "^8.68.0"
+  },
+  "files": [
+    "dist/sdk",
+    "dist/cli",
+    "NOTICE.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/sdk/node/index.d.ts",
+      "import": "./dist/sdk/node/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "keywords": [
+    "pdf",
+    "compression",
+    "pdfium",
+    "compress",
+    "optimize",
+    "jpegli",
+    "jbig2"
+  ],
+  "optionalDependencies": {
+    "hyper-compress-darwin-arm64": "0.1.0",
+    "hyper-compress-linux-x64": "0.1.0",
+    "hyper-compress-win32-x64": "0.1.0"
   }
 }

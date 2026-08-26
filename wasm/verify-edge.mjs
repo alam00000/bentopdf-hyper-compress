@@ -38,13 +38,13 @@ if (encryptedPath) {
         `${input.length} -> ${res.compressedSize}`);
   check(Buffer.from(res.data.slice(0, 5)).toString() === '%PDF-', 'output is still a PDF');
 
-  let threw = false;
+  let code = '';
   try {
     compressBuffer(mod, new Uint8Array(input), { preset: 'medium', password: 'definitely-wrong' });
-  } catch {
-    threw = true;
+  } catch (err) {
+    code = err && err.code ? err.code : '';
   }
-  check(threw, 'wrong password throws engine_error');
+  check(code === 'decrypt_failed', 'wrong password throws decrypt_failed');
 
   const dec = decryptBuffer(mod, new Uint8Array(input), '');
   check(dec !== null, 'decrypts with empty user password');

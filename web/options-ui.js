@@ -10,6 +10,17 @@ export const DPI_CHOICES = [
 
 export const SECTIONS = [
   {
+    title: 'Rasterize',
+    fields: [
+      { key: 'rasterizePages', type: 'bool', label: 'Rasterize pages to images',
+        help: 'For image-only PDFs with no selectable text, such as scans. Replaces each page with a single image, which shrinks vector heavy pages dramatically. The engine refuses to do this when the document still has a text layer.' },
+      { key: 'rasterizeDpi', type: 'range', label: 'Rasterize resolution', min: 36, max: 600,
+        help: 'Higher keeps more detail.' },
+      { key: 'rasterizeQuality', type: 'range', label: 'Rasterize quality', min: 1, max: 100,
+        help: 'JPEG quality for the rasterized pages.' },
+    ],
+  },
+  {
     title: 'Images',
     fields: [
       { key: 'imageQuality', type: 'range', label: 'Image quality', min: 20, max: 100,

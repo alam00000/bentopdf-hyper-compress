@@ -2,7 +2,7 @@ import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['dist/', 'node_modules/', 'wasm/out/', 'core/', 'web/index.html'] },
+  { ignores: ['dist/', 'node_modules/', 'wasm/out/', 'core/', 'web/index.html', 'packages/npm/*/lib/', 'packages/npm/*/engine/'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -19,6 +19,12 @@ export default tseslint.config(
         URL: 'readonly',
         TextDecoder: 'readonly',
         TextEncoder: 'readonly',
+        fetch: 'readonly',
+        URLSearchParams: 'readonly',
+        FileReader: 'readonly',
+        DataView: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
       },
     },
   },

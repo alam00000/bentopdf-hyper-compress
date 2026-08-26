@@ -5976,8 +5976,43 @@ class HyperConvertToBitmap {
                         const CompressOptions& opts)
       : doc_(doc), fpdf_doc_(fpdf_doc), opts_(opts) {}
 
+  bool HolderHasTextObject(CPDF_PageObjectHolder* holder, int depth) {
+    if (!holder) return false;
+    if (depth > 16) return true;
+    const size_t obj_count = holder->GetActivePageObjectCount();
+    for (size_t i = 0; i < obj_count; ++i) {
+      CPDF_PageObject* obj = holder->GetPageObjectByIndex(i);
+      if (!obj) continue;
+      if (obj->IsText()) return true;
+      if (obj->IsForm()) {
+        CPDF_FormObject* form_obj = obj->AsForm();
+        if (form_obj && HolderHasTextObject(form_obj->form(), depth + 1)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  bool DocumentHasTextLayer() {
+    const int page_count = doc_->GetPageCount();
+    for (int i = 0; i < page_count; ++i) {
+      RetainPtr<CPDF_Dictionary> page_dict = doc_->GetMutablePageDictionary(i);
+      if (!page_dict) continue;
+      if (!HyperIsLoadablePageDict(page_dict.Get())) continue;
+      auto page = pdfium::MakeRetain<CPDF_Page>(doc_, page_dict);
+      page->ParseContent();
+      if (HolderHasTextObject(page.Get(), 0)) return true;
+    }
+    return false;
+  }
+
   void Run() {
     if (!opts_.convert_to_bitmap || !fpdf_doc_) return;
+    if (DocumentHasTextLayer()) {
+      fprintf(stderr, "[hyper] rasterize skipped: document has a text layer\n");
+      return;
+    }
 
     int dpi = opts_.convert_to_bitmap_dpi;
     if (dpi < 36) dpi = 36;

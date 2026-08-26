@@ -2,54 +2,82 @@ import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { buildHyperTokens, normalizeHyperOptions, type HyperCompressOptions } from './options.js';
 import { HYPER_PRESETS, type CompressLevel } from './presets.js';
 
-export type HyperErrorCode =
-  | 'decrypt_failed'
-  | 'engine_error'
-  | 'timeout'
-  | 'cancelled';
-
-export class HyperError extends Error {
-  readonly code: HyperErrorCode;
-  constructor(code: HyperErrorCode, message?: string) {
-    super(message ?? code);
-    this.name = 'HyperError';
-    this.code = code;
-  }
-}
+import { HyperError } from './errors.js';
+export { HyperError, type HyperErrorCode } from './errors.js';
 import {
   conformanceSafeOptions, detectPdfaInBytes, packAllowedWhilePreserving,
   restoreHeaderVersion, type PdfaLevel,
 } from './pdfa.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+const EXE = process.platform === 'win32' ? '.exe' : '';
 
-function findPrebuilt(): string {
+function findPrebuilt(): string | null {
   let dir = HERE;
   for (let i = 0; i < 8; i++) {
     const candidate = path.join(dir, 'cli', 'prebuilt');
-    if (fs.existsSync(path.join(candidate, 'hpdf-worker'))) return candidate;
+    if (fs.existsSync(path.join(candidate, 'hpdf-worker' + EXE))) return candidate;
     const parent = path.dirname(dir);
     if (parent === dir) break;
     dir = parent;
   }
-  return path.resolve(HERE, '..', '..', 'cli', 'prebuilt');
+  return null;
 }
 
 const PREBUILT = findPrebuilt();
 
+const requireFromHere = createRequire(import.meta.url);
+const packageBinCache = new Map<string, string | null>();
+
+function platformPackageBin(name: string): string | null {
+  const cached = packageBinCache.get(name);
+  if (cached !== undefined) return cached;
+  const pkg = `hyper-compress-${process.platform}-${process.arch}`;
+  let bin: string | null;
+  try {
+    const dir = path.dirname(requireFromHere.resolve(`${pkg}/package.json`));
+    const candidate = path.join(dir, 'bin', name + EXE);
+    bin = fs.existsSync(candidate) ? candidate : null;
+  } catch {
+    bin = null;
+  }
+  packageBinCache.set(name, bin);
+  return bin;
+}
+
+function tryResolveBin(envVar: string, name: string): string | null {
+  const fromEnv = process.env[envVar];
+  if (fromEnv) return fromEnv;
+  if (PREBUILT) {
+    const local = path.join(PREBUILT, name + EXE);
+    if (fs.existsSync(local)) return local;
+  }
+  return platformPackageBin(name);
+}
+
+function requireBin(envVar: string, name: string): string {
+  const bin = tryResolveBin(envVar, name);
+  if (bin) return bin;
+  throw new HyperError(
+    'engine_error',
+    `no ${name} binary for ${process.platform}-${process.arch}: use a platform with a native package (darwin-arm64, linux-x64, win32-x64), set ${envVar} to a binary you built (see BUILDING.md), or switch to the hyper-compress-wasm package`,
+  );
+}
+
 export interface CompressInput {
   sourcePath: string;
-  savePath?: string;
-  password?: string | null;
-  preset?: CompressLevel;
-  options?: Partial<HyperCompressOptions>;
-  targetSizeBytes?: number;
-  signal?: AbortSignal;
-  timeoutMs?: number;
+  savePath?: string | undefined;
+  password?: string | null | undefined;
+  preset?: CompressLevel | undefined;
+  options?: Partial<HyperCompressOptions> | undefined;
+  targetSizeBytes?: number | undefined;
+  signal?: AbortSignal | undefined;
+  timeoutMs?: number | undefined;
 }
 
 export interface CompressResult {
@@ -60,10 +88,11 @@ export interface CompressResult {
   pdfa: PdfaLevel | null;
   pdfaPreserved: boolean;
   metTarget: boolean | null;
+  warnings: string[];
 }
 
 interface StageLimits {
-  signal?: AbortSignal;
+  signal?: AbortSignal | undefined;
   timeoutMs: number;
 }
 
@@ -86,11 +115,7 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
 }
 
 function driverPath(): string {
-  return process.env.HYPER_DRV ?? path.join(PREBUILT, 'hpdf-worker');
-}
-
-function qpdfPath(): string {
-  return process.env.HYPER_QPDF ?? path.join(PREBUILT, 'qpdf');
+  return requireBin('HYPER_DRV', 'hpdf-worker');
 }
 
 async function statSize(p: string): Promise<number> {
@@ -106,7 +131,7 @@ function runDriver(
   outPath: string,
   tokens: string[],
   limits?: StageLimits,
-): Promise<{ ok: boolean; signed: boolean }> {
+): Promise<{ ok: boolean; signed: boolean; note: string | null }> {
   return new Promise((resolve) => {
     const child = spawn(driverPath(), [inPath, outPath, ...tokens], {
       stdio: ['ignore', 'ignore', 'pipe'],
@@ -116,17 +141,20 @@ function runDriver(
     child.stderr?.on('data', (chunk: Buffer) => {
       stderr += chunk.toString();
     });
-    child.on('error', () => resolve({ ok: false, signed: false }));
+    child.on('error', () => resolve({ ok: false, signed: false, note: null }));
     child.on('close', (code) => {
       const signed = /SIGNED_SKIP/.test(stderr);
-      resolve({ ok: code === 0, signed });
+      const note = stderr.match(/\[hyper\] (rasterize skipped:[^\r\n]*)/)?.[1] ?? null;
+      resolve({ ok: code === 0, signed, note });
     });
   });
 }
 
 function runQpdf(args: string[], limits?: StageLimits): Promise<boolean> {
+  const bin = tryResolveBin('HYPER_QPDF', 'qpdf');
+  if (!bin) return Promise.resolve(false);
   return new Promise((resolve) => {
-    const child = spawn(qpdfPath(), args, { stdio: ['ignore', 'ignore', 'ignore'], ...stageSpawnOpts(limits) });
+    const child = spawn(bin, args, { stdio: ['ignore', 'ignore', 'ignore'], ...stageSpawnOpts(limits) });
     child.on('error', () => resolve(false));
     child.on('close', (code) => resolve(code === 0));
   });
@@ -144,6 +172,7 @@ function runQpdfPack(inPath: string, outPath: string, limits?: StageLimits): Pro
 }
 
 async function runQpdfDecrypt(inPath: string, outPath: string, password: string, limits?: StageLimits): Promise<void> {
+  requireBin('HYPER_QPDF', 'qpdf');
   const ok = await runQpdf(['--warning-exit-0', `--password=${password}`, '--decrypt', inPath, outPath], limits);
   if (!ok) throw new HyperError('decrypt_failed');
 }
@@ -160,7 +189,8 @@ export async function verifyPassword(sourcePath: string, password: string, timeo
       timeoutMs: timeoutMs ?? 60_000,
     });
     return true;
-  } catch {
+  } catch (err) {
+    if (err instanceof HyperError && err.code !== 'decrypt_failed') throw err;
     return false;
   } finally {
     await fs.promises.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
@@ -169,7 +199,9 @@ export async function verifyPassword(sourcePath: string, password: string, timeo
 
 export async function compress(input: CompressInput): Promise<CompressResult> {
   if (!input.sourcePath) throw new HyperError('engine_error', 'sourcePath is required');
-  let options = resolveOptions(input);
+  const requested = resolveOptions(input);
+  let options = requested;
+  const warnings: string[] = [];
   const password =
     typeof input.password === 'string' && input.password.length > 0 ? input.password : null;
   const originalSize = (await fs.promises.stat(input.sourcePath)).size;
@@ -182,6 +214,12 @@ export async function compress(input: CompressInput): Promise<CompressResult> {
   const preserving = Boolean(options.preserveConformance && claimed);
   if (preserving && claimed) {
     options = conformanceSafeOptions(options, claimed);
+    if (requested.rasterizePages && !options.rasterizePages) {
+      warnings.push('rasterizePages disabled to preserve PDF/A conformance');
+    }
+    if (requested.brotli) {
+      warnings.push('brotli disabled to preserve PDF/A conformance');
+    }
   }
   options = { ...options, preserveConformance: preserving };
   const tokens = buildHyperTokens(options);
@@ -232,7 +270,8 @@ export async function compress(input: CompressInput): Promise<CompressResult> {
       ? Math.floor(input.targetSizeBytes)
       : null;
 
-    const { ok, signed } = await runDriver(workIn, drvOut, tokens, limits);
+    const { ok, signed, note } = await runDriver(workIn, drvOut, tokens, limits);
+    if (note) warnings.push(note);
 
     if (ok && signed) {
       await fs.promises.copyFile(fallbackBase, finalPath);
@@ -244,6 +283,7 @@ export async function compress(input: CompressInput): Promise<CompressResult> {
         pdfa: claimed,
         pdfaPreserved: Boolean(claimed),
         metTarget: target != null ? (await statSize(finalPath)) <= target : null,
+        warnings,
       };
     }
 
@@ -357,6 +397,7 @@ export async function compress(input: CompressInput): Promise<CompressResult> {
       pdfa: claimed,
       pdfaPreserved: preserving,
       metTarget: target != null ? (await statSize(finalPath)) <= target : null,
+      warnings,
     };
   } finally {
     try {

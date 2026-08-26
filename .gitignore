@@ -27,3 +27,5 @@ bench/results.json
 bench/dq-*
 core/third_party/jpegli/linux-*/
 docker/build-work/
+packages/npm/*/bin/*
+!packages/npm/*/bin/.gitkeep

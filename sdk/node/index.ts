@@ -1,6 +1,7 @@
 export { compress, resolveOptions, verifyPassword } from './engine.js';
 export type { CompressInput, CompressResult, HyperErrorCode } from './engine.js';
 export { HyperError } from './engine.js';
+export type { PdfaLevel } from './pdfa.js';
 export {
   buildHyperTokens,
   normalizeHyperOptions,

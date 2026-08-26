@@ -28,18 +28,24 @@ curl -o out.pdf --data-binary @in.pdf \
 
 Query parameters:
 
-- `preset` — `low`, `medium` (default), `high`, `lossless`
-- `targetSizeBytes` — bounded quality search toward a target size
-- `brotli=true` — PDF 2.0 Brotli stream compression (opt-in; readers vary)
+- `preset`: `low`, `medium` (default), `high`, `lossless`, or `custom`
+- `options`: JSON object of engine options, at most 4096 bytes, applied on top
+  of the preset. Required when `preset=custom`; fields you leave unset fall
+  back to the `medium` baseline.
+- `targetSizeBytes`: bounded quality search toward a target size
+- `brotli=true`: PDF 2.0 Brotli stream compression (opt-in; readers vary)
 
 Headers:
 
-- `X-Password` (request) — password for encrypted input
+- `X-Password` (request): password for encrypted input
 - `X-Original-Size`, `X-Compressed-Size`, `X-Signed`, `X-Pdfa`,
-  `X-Met-Target` (response)
+  `X-Met-Target`, `X-Warnings` (response). `X-Warnings` is a URL-encoded JSON
+  array of notes, for example a rasterize request that was dropped to preserve
+  PDF/A conformance.
 
-Errors are JSON: `400 not_a_pdf` / `bad_preset` / `decrypt_failed`,
-`413 too_large`, `429 busy` (queue full), `504 timeout`.
+Errors are JSON: `400 not_a_pdf` / `bad_preset` / `bad_options` /
+`options_required` / `decrypt_failed`, `413 too_large`, `429 busy`
+(queue full), `504 timeout`.
 
 `GET /healthz` returns `{ok, active, queued}` for monitoring.
 
@@ -57,11 +63,11 @@ The container runs as a non-root user. Hostile input is parsed in a worker
 subprocess with a timeout; a crash kills the worker, not the service.
 
 Put a reverse proxy (nginx, Caddy, Traefik) in front for TLS and, if the
-instance is public, rate limiting — the service itself does no authentication.
+instance is public, rate limiting; the service itself does no authentication.
 
 ## CLI mode
 
-The same image doubles as the CLI — pass arguments and it compresses instead
+The same image doubles as the CLI: pass arguments and it compresses instead
 of serving:
 
 ```bash

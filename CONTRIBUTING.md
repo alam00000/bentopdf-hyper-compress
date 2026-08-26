@@ -15,7 +15,7 @@ Thanks for wanting to help. Two things to know before your first PR:
 
 ```bash
 npm ci
-make check        # typecheck, lint, unit tests — works on a bare checkout
+make check        # typecheck, lint, unit tests; works on a bare checkout
 ```
 
 That's enough for changes to the SDK, CLI, tests, or web code. For engine
@@ -27,7 +27,7 @@ With binaries present, `make check` also runs the integration tests, and:
 make regress      # the failset, every preset, validity + fidelity + text layer
 ```
 
-is the gate a bug fix has to pass — it ends with a failing-pairs count that
+is the gate a bug fix has to pass; it ends with a failing-pairs count that
 must be zero.
 
 ## Layout

@@ -1,5 +1,6 @@
 import { buildHyperTokens, normalizeHyperOptions, type HyperCompressOptions } from '../sdk/node/options.js';
 import { HYPER_PRESETS, type CompressLevel } from '../sdk/node/presets.js';
+import { HyperError } from '../sdk/node/errors.js';
 import {
   conformanceSafeOptions, formatPdfaLevel, packAllowedWhilePreserving, parsePdfaFromXmp,
   restoreHeaderVersion, stripPdfaFromXmp, type PdfaLevel,
@@ -40,10 +41,10 @@ export interface HyperWasmModule {
 }
 
 export interface HyperWasmOptions {
-  preset?: CompressLevel;
-  options?: Partial<HyperCompressOptions>;
-  password?: string | null;
-  targetSizeBytes?: number;
+  preset?: CompressLevel | undefined;
+  options?: Partial<HyperCompressOptions> | undefined;
+  password?: string | null | undefined;
+  targetSizeBytes?: number | undefined;
 }
 
 export interface HyperWasmResult {
@@ -54,6 +55,7 @@ export interface HyperWasmResult {
   pdfa: PdfaLevel | null;
   pdfaOutcome: 'none' | 'preserved' | 'claim-withdrawn';
   metTarget: boolean | null;
+  warnings: string[];
 }
 
 function tokensToPairs(tokens: string[]): { ids: number[]; vals: number[] } {
@@ -92,12 +94,24 @@ function copyIntArray(mod: HyperWasmModule, values: number[]): number {
   const ptr = mod._malloc(Math.max(1, values.length) * 4);
   if (!ptr) return 0;
   const view = mod.HEAP32;
-  for (let i = 0; i < values.length; i++) view[(ptr >> 2) + i] = values[i];
+  for (let i = 0; i < values.length; i++) view[(ptr >> 2) + i] = values[i] ?? 0;
   return ptr;
 }
 
+function readHeapU32(mod: HyperWasmModule, byteOffset: number): number {
+  const value = mod.HEAPU32[byteOffset >> 2];
+  if (value === undefined) throw new HyperError('engine_error', 'wasm heap read out of bounds');
+  return value;
+}
+
+function readHeap32(mod: HyperWasmModule, byteOffset: number): number {
+  const value = mod.HEAP32[byteOffset >> 2];
+  if (value === undefined) throw new HyperError('engine_error', 'wasm heap read out of bounds');
+  return value;
+}
+
 function takeResult(mod: HyperWasmModule, outPtr: number, sizePtr: number): Uint8Array | null {
-  const size = mod.HEAPU32[sizePtr >> 2] >>> 0;
+  const size = readHeapU32(mod, sizePtr) >>> 0;
   if (!outPtr || size === 0) {
     if (outPtr) mod._hyper_free(outPtr);
     return null;
@@ -222,7 +236,7 @@ export function runEngine(
       sizePtr,
       signedPtr,
     );
-    const signed = mod.HEAP32[signedPtr >> 2] !== 0;
+    const signed = readHeap32(mod, signedPtr) !== 0;
     return { data: takeResult(mod, outPtr, sizePtr), signed };
   } finally {
     mod._free(inPtr);
@@ -252,7 +266,7 @@ export function compressBuffer(
   let fallbackBase = input;
   if (password) {
     const decrypted = decryptBuffer(mod, input, password);
-    if (!decrypted) throw new Error('engine_error');
+    if (!decrypted) throw new HyperError('decrypt_failed', 'wrong or missing password');
     workIn = decrypted;
     fallbackBase = decrypted;
   }
@@ -261,12 +275,20 @@ export function compressBuffer(
     ? Math.floor(opts.targetSizeBytes)
     : null;
 
-  let resolved = resolveOptions(opts);
+  const requested = resolveOptions(opts);
+  let resolved = requested;
+  const warnings: string[] = [];
 
   const claimed = detectPdfa(mod, workIn);
   const preserving = Boolean(resolved.preserveConformance && claimed);
   if (preserving && claimed) {
     resolved = conformanceSafeOptions(resolved, claimed);
+    if (requested.rasterizePages && !resolved.rasterizePages) {
+      warnings.push('rasterizePages disabled to preserve PDF/A conformance');
+    }
+    if (requested.brotli) {
+      warnings.push('brotli disabled to preserve PDF/A conformance');
+    }
   }
   resolved = { ...resolved, preserveConformance: preserving };
   const tokens = buildHyperTokens(resolved);
@@ -300,6 +322,7 @@ export function compressBuffer(
       pdfa: claimed,
       pdfaOutcome: outcome,
       metTarget: target != null ? out.length <= target : null,
+      warnings,
     };
   };
 
@@ -312,6 +335,7 @@ export function compressBuffer(
       pdfa: claimed,
       pdfaOutcome: claimed ? 'preserved' : 'none',
       metTarget: target != null ? fallbackBase.length <= target : null,
+      warnings,
     };
   }
 

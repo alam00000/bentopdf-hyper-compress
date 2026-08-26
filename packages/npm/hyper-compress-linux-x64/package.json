@@ -1,0 +1,19 @@
+{
+  "name": "hyper-compress-linux-x64",
+  "version": "0.1.0",
+  "description": "Prebuilt Hyper Compress engine binaries for linux x64",
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alam00000/bentopdf-hyper-compress.git"
+  },
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "bin"
+  ]
+}
