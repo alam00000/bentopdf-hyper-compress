@@ -167,7 +167,7 @@ jobs:
           QPDF_SHA256=8941870a604e7c87ed24566b038d46c24ce76616254d2383c578f60c0677f202
           curl -sL -o qpdf.zip "https://github.com/qpdf/qpdf/releases/download/v$QPDF_VERSION/qpdf-$QPDF_VERSION-msvc64.zip"
           echo "$QPDF_SHA256  qpdf.zip" | sha256sum -c -
-          tar -xf qpdf.zip
+          /c/Windows/System32/tar.exe -xf qpdf.zip
           cp "qpdf-$QPDF_VERSION-msvc64/bin/qpdf.exe" "qpdf-$QPDF_VERSION-msvc64/bin/"*.dll cli/prebuilt/
       - name: package
         shell: bash
