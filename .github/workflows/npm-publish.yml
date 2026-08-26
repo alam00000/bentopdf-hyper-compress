@@ -7,6 +7,11 @@ on:
       tag:
         required: true
         type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -58,7 +63,7 @@ jobs:
           EOF
       - name: build
         run: |
-          npm ci
+          npm install --no-audit --no-fund
           npm run build
       - name: populate packages from release assets
         env:
