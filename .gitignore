@@ -29,3 +29,6 @@ core/third_party/jpegli/linux-*/
 docker/build-work/
 packages/npm/*/bin/*
 !packages/npm/*/bin/.gitkeep
+site/
+scripts/build-site.sh
+scripts/deploy-site.sh
