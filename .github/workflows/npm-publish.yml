@@ -2,6 +2,11 @@ name: npm-publish
 on:
   release:
     types: [published]
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -10,23 +15,30 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-24.04
+    env:
+      TAG: ${{ inputs.tag || github.event.release.tag_name }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-          registry-url: https://registry.npmjs.org
       - name: update npm for trusted publishing
         run: npm install -g npm@latest
-      - name: verify version matches the release tag
+      - name: npm auth
         env:
-          TAG: ${{ github.event.release.tag_name }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -n "$NPM_TOKEN" ]; then
+            npm config set //registry.npmjs.org/:_authToken "$NPM_TOKEN"
+            echo "auth: npm token from the NPM_TOKEN secret"
+          else
+            echo "auth: OIDC trusted publishing"
+          fi
+      - name: verify version matches the release tag
         run: |
           PKG="$(node -p "require('./package.json').version")"
           [ "v$PKG" = "$TAG" ] || { echo "package.json $PKG does not match tag $TAG"; exit 1; }
       - name: stamp package versions from the tag
-        env:
-          TAG: ${{ github.event.release.tag_name }}
         run: |
           node - <<'EOF'
           const fs = require('fs');
@@ -51,7 +63,6 @@ jobs:
       - name: populate packages from release assets
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.release.tag_name }}
         run: |
           mkdir -p rel
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
