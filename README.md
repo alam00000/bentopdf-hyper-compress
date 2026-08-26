@@ -208,8 +208,6 @@ You can create custom profiles using image quality and resolution, grayscale con
 
 ## What the Engine Does
 
-Hyper Compress is built around a pinned Google PDFium checkout. It also uses jpegli for JPEG encoding, jbig2enc for scanned monochrome documents, and an AFDKO subset for Type 1 font conversion.
-
 Depending on the document and selected options, the engine can:
 
 * re encode images with jpegli
@@ -226,7 +224,7 @@ Depending on the document and selected options, the engine can:
 * optionally apply PDF 2.0 Brotli stream compression
 * optionally rasterise pages when the document is genuinely image-only
 
-The engine is not based on a single compression trick. It works at multiple levels of the PDF, then keeps only changes that survive validation.
+The engine applies multiple techniques mentioned above to achieve best possible compression.
 
 ---
 
