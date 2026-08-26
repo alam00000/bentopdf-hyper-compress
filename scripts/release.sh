@@ -78,7 +78,11 @@ npm install --package-lock-only --silent
 make check
 
 git add sdk/native/hpdf.h package.json package-lock.json packages/npm/*/package.json
-git commit -m "chore: release $TAG"
+if git diff --cached --quiet; then
+  echo "==> versions already at $VERSION; tagging current HEAD"
+else
+  git commit -m "chore: release $TAG"
+fi
 git tag -a "$TAG" -m "release $TAG"
 git push origin main
 git push origin "$TAG"
