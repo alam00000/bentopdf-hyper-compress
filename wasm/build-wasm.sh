@@ -35,7 +35,7 @@ em++ -O3 "${ABI_FLAGS[@]}" \
   "$PRE/libqpdf.a" \
   "$PRE/libjpegli-static.a" \
   "$PRE/libhwy.a" \
-  -lz -ljpeg \
+  --use-port=zlib --use-port=libjpeg \
   -Wl,--allow-multiple-definition \
   -o "$OUT/hyper-compress.js" \
   -sMODULARIZE=1 \
