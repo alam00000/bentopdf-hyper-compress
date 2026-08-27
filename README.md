@@ -10,6 +10,8 @@ Hyper Compress is a high fidelity, content preserving PDF compression engine bui
 
 Hyper Compress is a part of  [BentoPDF](https://github.com/alam00000/bentopdf) suite. The same  engine is available as a CLI, Node SDK, C library, self hosted service, and a WebAssembly build that runs entirely in the browser.
 
+Try it at [hyper.bentopdf.com](https://hyper.bentopdf.com). Full documentation lives at [hyper.bentopdf.com/docs](https://hyper.bentopdf.com/docs/).
+
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://github.com/alam00000/bentopdf-hyper-compress/blob/main/LICENSE) ![GitHub Stars](https://img.shields.io/github/stars/alam00000/bentopdf-hyper-compress?style=social)
 
 ---
@@ -120,9 +122,11 @@ hyper scan.pdf out.pdf --target-size 2MB            # specify a target size
 hyper locked.pdf out.pdf --password hunter2         # encrypted input
 
 hyper in.pdf out.pdf --set grayscale=true           # override an option
+
+hyper --help                                        # every flag, with examples
 ```
 
-`--target-size` performs a bounded quality search and reports whether the target was reached. It will not keep degrading the document indefinitely just to hit a number: quality will not go below 20 and resolution will not go below 72 dpi.
+`--target-size` searches for the highest image quality that fits under your target, pushing down to quality 5 and 36 dpi if it has to. If the target is reachable you get the best looking file that fits; if it is not, you get the smallest file the engine could produce along with a warning saying how small that was.
 
 ### Node SDK
 
@@ -270,7 +274,7 @@ Continuous fuzzing runs through Google's OSS-Fuzz, and discovered crashes are pi
 
 Hyper Compress is licensed under the [GNU AGPL v3](https://github.com/alam00000/bentopdf-hyper-compress/blob/main/LICENSE).
 
-If you need to use Hyper Compress in a proprietary or closed-source product, a commercial license is available.
+If you need to use Hyper Compress in a proprietary or closed-source product, a commercial license is available. Contact us at [contact@bentopdf.com](mailto:contact@bentopdf.com).
 
 Bundled third-party components retain their own licenses. See [NOTICE.md](https://github.com/alam00000/bentopdf-hyper-compress/blob/main/NOTICE.md) for the full list.
 

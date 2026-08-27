@@ -8,11 +8,16 @@ import { buildHyperTokens, normalizeHyperOptions, type HyperCompressOptions } fr
 import { HYPER_PRESETS, type CompressLevel } from './presets.js';
 
 import { HyperError } from './errors.js';
-export { HyperError, type HyperErrorCode } from './errors.js';
 import {
   conformanceSafeOptions, detectPdfaInBytes, packAllowedWhilePreserving,
   restoreHeaderVersion, type PdfaLevel,
 } from './pdfa.js';
+import {
+  TARGET_QUALITY_FLOOR, TARGET_QUALITY_STEPS, targetLadder, targetMissWarning,
+  targetStartQuality,
+} from './target.js';
+
+export { HyperError, type HyperErrorCode } from './errors.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const EXE = process.platform === 'win32' ? '.exe' : '';
@@ -275,14 +280,15 @@ export async function compress(input: CompressInput): Promise<CompressResult> {
 
     if (ok && signed) {
       await fs.promises.copyFile(fallbackBase, finalPath);
+      const signedSize = await statSize(finalPath);
       return {
         outputPath: finalPath,
         originalSize,
-        compressedSize: await statSize(finalPath),
+        compressedSize: signedSize,
         signed: true,
         pdfa: claimed,
         pdfaPreserved: Boolean(claimed),
-        metTarget: target != null ? (await statSize(finalPath)) <= target : null,
+        metTarget: target != null ? signedSize <= target : null,
         warnings,
       };
     }
@@ -315,14 +321,11 @@ export async function compress(input: CompressInput): Promise<CompressResult> {
           ...options,
           lossless: false,
         };
-        const startQ = Math.min(
-          95,
-          baseOpts.imageQuality > 20 ? baseOpts.imageQuality : 80,
-        );
-        let lo = 20;
+        const startQ = targetStartQuality(baseOpts);
+        let lo = TARGET_QUALITY_FLOOR;
         let hi = startQ - 1;
         let iterations = 0;
-        while (lo <= hi && iterations < 6) {
+        while (lo <= hi && iterations < TARGET_QUALITY_STEPS) {
           iterations++;
           throwIfAborted(input.signal);
           const q = Math.floor((lo + hi) / 2);
@@ -345,26 +348,18 @@ export async function compress(input: CompressInput): Promise<CompressResult> {
             hi = q - 1;
           }
         }
-        if (!bestFit) {
-          const res = await runAttempt(
-            {
-              ...baseOpts,
-              imageQuality: 20,
-              maxDpi: 72,
-              forceDownsample: true,
-            },
-            attemptDrv,
-            attemptPack,
-          );
-          if (res.candidate) {
-            const size = await statSize(res.candidate);
-            if (size > 0 && size <= target) {
-              await fs.promises.copyFile(res.candidate, keepFit);
-              bestFit = { path: keepFit, size };
-            } else if (size > 0 && size < smallest.size) {
-              await fs.promises.copyFile(res.candidate, keepSmallest);
-              smallest = { path: keepSmallest, size };
-            }
+        for (const rung of targetLadder(baseOpts)) {
+          if (bestFit) break;
+          throwIfAborted(input.signal);
+          const res = await runAttempt(rung, attemptDrv, attemptPack);
+          if (!res.candidate) break;
+          const size = await statSize(res.candidate);
+          if (size > 0 && size <= target) {
+            await fs.promises.copyFile(res.candidate, keepFit);
+            bestFit = { path: keepFit, size };
+          } else if (size > 0 && size < smallest.size) {
+            await fs.promises.copyFile(res.candidate, keepSmallest);
+            smallest = { path: keepSmallest, size };
           }
         }
         packed = bestFit ? bestFit.path : smallest.path;
@@ -389,14 +384,20 @@ export async function compress(input: CompressInput): Promise<CompressResult> {
       if (patched !== outBytes) await fs.promises.writeFile(finalPath, patched);
     }
 
+    const finalSize = await statSize(finalPath);
+    const metTarget = target != null ? finalSize <= target : null;
+    if (target != null && metTarget === false) {
+      warnings.push(targetMissWarning(finalSize, target));
+    }
+
     return {
       outputPath: finalPath,
       originalSize,
-      compressedSize: await statSize(finalPath),
+      compressedSize: finalSize,
       signed: false,
       pdfa: claimed,
       pdfaPreserved: preserving,
-      metTarget: target != null ? (await statSize(finalPath)) <= target : null,
+      metTarget,
       warnings,
     };
   } finally {

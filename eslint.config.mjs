@@ -29,7 +29,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['tests/regression/**/*.mjs', 'bench/**/*.mjs'],
+    files: ['tests/regression/**/*.mjs', 'bench/**/*.mjs', 'scripts/**/*.mjs'],
     languageOptions: {
       globals: {
         process: 'readonly',

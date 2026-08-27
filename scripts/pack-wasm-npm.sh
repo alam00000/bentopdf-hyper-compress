@@ -19,7 +19,7 @@ mkdir -p "$PKG/lib/wasm" "$PKG/lib/sdk/node" "$PKG/engine"
 for f in sdk glue; do
   cp "$ROOT/dist/wasm/$f.js" "$ROOT/dist/wasm/$f.d.ts" "$PKG/lib/wasm/"
 done
-for f in options presets pdfa errors; do
+for f in options presets pdfa errors target; do
   cp "$ROOT/dist/sdk/node/$f.js" "$ROOT/dist/sdk/node/$f.d.ts" "$PKG/lib/sdk/node/"
 done
 

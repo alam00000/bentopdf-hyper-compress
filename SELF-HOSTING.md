@@ -32,7 +32,8 @@ Query parameters:
 - `options`: JSON object of engine options, at most 4096 bytes, applied on top
   of the preset. Required when `preset=custom`; fields you leave unset fall
   back to the `medium` baseline.
-- `targetSizeBytes`: bounded quality search toward a target size
+- `targetSizeBytes`: search toward a size, down to quality 5 and 36 dpi; on a
+  miss you get the smallest achievable file and `X-Met-Target: false`
 - `brotli=true`: PDF 2.0 Brotli stream compression (opt-in; readers vary)
 
 Headers:

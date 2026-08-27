@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parse } from '../cli/bin/hyper.js';
+import { createRequire } from 'node:module';
+import { parse, version } from '../cli/bin/hyper.js';
 
 test('target-size accepts unit suffixes', () => {
   assert.equal(parse(['a', 'b', '--target-size', '2MB']).targetSizeBytes, 2 * 1024 * 1024);
@@ -16,4 +17,43 @@ test('--set coerces booleans and numbers', () => {
   const p = parse(['a', 'b', '--set', 'grayscale=true', '--set', 'imageQuality=55']);
   assert.equal(p.overrides.grayscale, true);
   assert.equal(p.overrides.imageQuality, 55);
+});
+
+test('--help and --version are recognised, long and short', () => {
+  for (const flag of ['--help', '-h']) {
+    assert.equal(parse([flag]).help, true, `${flag} should request help`);
+  }
+  for (const flag of ['--version', '-v', '-V']) {
+    assert.equal(parse([flag]).version, true, `${flag} should request the version`);
+  }
+  const plain = parse(['a', 'b']);
+  assert.equal(plain.help, false);
+  assert.equal(plain.version, false);
+});
+
+test('version() reports the package version', () => {
+  const pkg = createRequire(import.meta.url)('../../package.json') as { version: string };
+  assert.equal(version(), pkg.version);
+  assert.match(version(), /^\d+\.\d+\.\d+$/);
+});
+
+test('the bin runs when invoked through a symlink, as npm installs it', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const { mkdtempSync, symlinkSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const path = (await import('node:path')).default;
+  const { fileURLToPath } = await import('node:url');
+  const dir = mkdtempSync(path.join(tmpdir(), 'hyper-bin-'));
+  try {
+    const real = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)), '..', 'cli', 'bin', 'hyper.js',
+    );
+    const link = path.join(dir, 'hyper');
+    symlinkSync(real, link);
+    const r = spawnSync(process.execPath, [link], { encoding: 'utf8' });
+    assert.equal(r.status, 2);
+    assert.match(r.stderr, /usage: hyper/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

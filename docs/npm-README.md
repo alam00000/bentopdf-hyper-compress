@@ -2,7 +2,7 @@
 
 High fidelity, content preserving PDF compression for Node.js. 
 
-Benchmarks, methodology and the full source live in the [GitHub repository](https://github.com/alam00000/bentopdf-hyper-compress).
+Full documentation lives at [hyper.bentopdf.com/docs](https://hyper.bentopdf.com/docs/); benchmarks, methodology and the source live in the [GitHub repository](https://github.com/alam00000/bentopdf-hyper-compress).
 
 ## Install
 
@@ -36,6 +36,8 @@ npx hyper scan.pdf out.pdf --target-size 2MB
 npx hyper locked.pdf out.pdf --password secret
 npx hyper in.pdf out.pdf --set grayscale=true --set imageQuality=40
 npx hyper in.pdf out.pdf --brotli
+npx hyper --help        # every flag, with examples
+npx hyper --version     # the installed version
 ```
 
 Exit codes: 0 on success, 1 on any error (the message goes to stderr), 2 on bad usage. `--set` accepts any option from the table below by its camelCase name.
@@ -81,7 +83,7 @@ Guarantees enforced by the engine, not left to the caller:
 - A digitally signed document is returned byte-for-byte untouched, because any rewrite would invalidate the signature.
 - A PDF/A document either keeps its conformance (with `preserveConformance`) or has the claim removed. It is never left claiming a standard it no longer meets.
 - Page rasterization is refused when any page contains text, including an invisible OCR layer, so it cannot destroy searchable text. The refusal is reported in `warnings`.
-- With `targetSizeBytes`, the quality search will not go below quality 20 or 72 dpi. If the target is unreachable, the best result is returned and `metTarget` is `false`.
+- With `targetSizeBytes`, the search pushes to quality 5 and 36 dpi to reach your target. If it is still unreachable, you get the smallest file the engine could produce, `metTarget: false`, and a warning saying how small that was.
 
 Errors are thrown as `HyperError` with a typed `code`:
 
@@ -224,4 +226,4 @@ import type {
 
 ## License
 
-AGPL-3.0-only. For use in proprietary products, a commercial license is available through [BentoPDF](https://bentopdf.com/licensing.html). Bundled third-party components keep their own licenses; see [NOTICE.md](https://github.com/alam00000/bentopdf-hyper-compress/blob/main/NOTICE.md).
+AGPL-3.0-only. For use in proprietary products, a commercial license is available; contact us at [contact@bentopdf.com](mailto:contact@bentopdf.com). Bundled third-party components keep their own licenses; see [NOTICE.md](https://github.com/alam00000/bentopdf-hyper-compress/blob/main/NOTICE.md).

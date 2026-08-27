@@ -26,7 +26,7 @@ test('the assembled wasm package imports and compresses', opts, async () => {
     'engine/hyper-compress.js', 'engine/hyper-compress.wasm',
     'lib/wasm/sdk.js', 'lib/wasm/glue.js',
     'lib/sdk/node/options.js', 'lib/sdk/node/presets.js',
-    'lib/sdk/node/pdfa.js', 'lib/sdk/node/errors.js',
+    'lib/sdk/node/pdfa.js', 'lib/sdk/node/errors.js', 'lib/sdk/node/target.js',
   ]) {
     assert.ok(existsSync(path.join(PKG, f)), `package is missing ${f}`);
   }

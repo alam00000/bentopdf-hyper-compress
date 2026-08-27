@@ -86,4 +86,4 @@ This also restores crash isolation: if hostile input takes down the engine, it t
 
 ## License
 
-AGPL-3.0-only. For use in proprietary products, a commercial license is available through [BentoPDF](https://bentopdf.com/licensing.html). Bundled third-party components keep their own licenses; see [NOTICE.md](https://github.com/alam00000/bentopdf-hyper-compress/blob/main/NOTICE.md).
+AGPL-3.0-only. For use in proprietary products, a commercial license is available; contact us at [contact@bentopdf.com](mailto:contact@bentopdf.com). Bundled third-party components keep their own licenses; see [NOTICE.md](https://github.com/alam00000/bentopdf-hyper-compress/blob/main/NOTICE.md).

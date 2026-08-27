@@ -25,7 +25,9 @@
     "test": "npm run --silent build && node --test dist/tests/*.test.js",
     "lint": "eslint sdk cli/bin scripts tests server wasm/glue.ts wasm/sdk.ts packages/npm/hyper-compress-wasm/index.js packages/npm/hyper-compress-wasm/index.d.ts web/worker.js web/options-ui.js web/app.js web/engine-wasm.js web/engine-http.js",
     "serve": "npm run --silent build && node dist/server/server.js",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "docs:dev": "npm run build && node scripts/gen-options-doc.mjs && vitepress dev docs",
+    "docs:build": "npm run build && node scripts/gen-options-doc.mjs && vitepress build docs"
   },
   "engines": {
     "node": ">=22"
@@ -36,7 +38,8 @@
     "eslint": "^10.9.1",
     "tsc7": "npm:typescript@^7.0.2",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.68.0"
+    "typescript-eslint": "^8.68.0",
+    "vitepress": "^1.6.4"
   },
   "files": [
     "dist/sdk",

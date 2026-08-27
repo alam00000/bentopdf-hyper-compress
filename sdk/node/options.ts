@@ -38,7 +38,7 @@ export function normalizeHyperOptions(raw: unknown): HyperCompressOptions {
   const bool = (v: unknown, dflt: boolean): boolean =>
     typeof v === 'boolean' ? v : dflt;
   return {
-    imageQuality: clamp(a.imageQuality, 20, 100, 80),
+    imageQuality: clamp(a.imageQuality, 5, 100, 80),
     maxDpi: clamp(a.maxDpi, 0, 600, 150),
     lossless: bool(a.lossless, false),
     grayscale: bool(a.grayscale, false),
@@ -114,3 +114,135 @@ export function buildHyperTokens(o: HyperCompressOptions): string[] {
   if (o.brotli && !o.preserveConformance) tokens.push('65=1', '66=11');
   return tokens;
 }
+
+export type HyperOptionGroup =
+  | 'Images'
+  | 'Rasterization'
+  | 'Fonts'
+  | 'Structure and interactivity'
+  | 'Metadata and cleanup'
+  | 'Output format';
+
+export interface HyperOptionDoc {
+  group: HyperOptionGroup;
+  type: 'boolean' | 'number';
+  min?: number;
+  max?: number;
+  default: boolean | number;
+  description: string;
+}
+
+export const HYPER_OPTION_DOCS: Record<keyof HyperCompressOptions, HyperOptionDoc> = {
+  imageQuality: {
+    group: 'Images', type: 'number', min: 5, max: 100, default: 80,
+    description: 'JPEG quality for re-encoded images. Lower is smaller with more visible artefacts. Below about 20 the artefacts are obvious, which is why no preset goes there, but a size target can.',
+  },
+  maxDpi: {
+    group: 'Images', type: 'number', min: 0, max: 600, default: 150,
+    description: 'Images above this resolution are resampled down. 0 leaves resolution alone.',
+  },
+  forceDownsample: {
+    group: 'Images', type: 'boolean', default: false,
+    description: 'Resample even when the image is only slightly above the limit.',
+  },
+  lossless: {
+    group: 'Images', type: 'boolean', default: false,
+    description: 'Turns off quality, resolution and every other lossy image step.',
+  },
+  grayscale: {
+    group: 'Images', type: 'boolean', default: false,
+    description: 'Convert images to grayscale.',
+  },
+  reduceColor: {
+    group: 'Images', type: 'boolean', default: false,
+    description: 'Reduce colour complexity where it does not change appearance.',
+  },
+  clipImages: {
+    group: 'Images', type: 'boolean', default: false,
+    description: 'Crop image data hidden outside the visible clip region.',
+  },
+  preferJpx: {
+    group: 'Images', type: 'boolean', default: false,
+    description: 'Let JPEG 2000 compete with JPEG per image and keep the smaller one.',
+  },
+  removeAlternates: {
+    group: 'Images', type: 'boolean', default: false,
+    description: 'Drop alternate image versions.',
+  },
+  flattenIcc: {
+    group: 'Images', type: 'boolean', default: false,
+    description: 'Flatten ICC colour profiles.',
+  },
+  rasterizePages: {
+    group: 'Rasterization', type: 'boolean', default: false,
+    description: 'Replace each page with a single rendered image. Shrinks vector-heavy pages dramatically.',
+  },
+  rasterizeDpi: {
+    group: 'Rasterization', type: 'number', min: 36, max: 600, default: 150,
+    description: 'Render resolution. Higher keeps more detail.',
+  },
+  rasterizeQuality: {
+    group: 'Rasterization', type: 'number', min: 1, max: 100, default: 50,
+    description: 'JPEG quality for the rasterized pages.',
+  },
+  subsetFonts: {
+    group: 'Fonts', type: 'boolean', default: false,
+    description: 'Keep only the glyphs the document uses. Lossless by definition.',
+  },
+  removeStandardFonts: {
+    group: 'Fonts', type: 'boolean', default: false,
+    description: 'Unembed the standard 14 PDF fonts; viewers supply them.',
+  },
+  unembedAliasedFonts: {
+    group: 'Fonts', type: 'boolean', default: false,
+    description: 'Unembed metric-compatible clones of the standard fonts. Arial, Times New Roman and Courier New map to the built-in equivalents. Only applied when safe.',
+  },
+  mergeFonts: {
+    group: 'Fonts', type: 'boolean', default: false,
+    description: 'Merge duplicate font programs and dictionaries.',
+  },
+  removeAnnots: {
+    group: 'Structure and interactivity', type: 'boolean', default: false,
+    description: 'Remove comments and other annotations.',
+  },
+  flattenForms: {
+    group: 'Structure and interactivity', type: 'boolean', default: false,
+    description: 'Flatten form fields into page content. Form fields stop being fillable.',
+  },
+  flattenLinks: {
+    group: 'Structure and interactivity', type: 'boolean', default: false,
+    description: 'Flatten link annotations. Links stop being clickable.',
+  },
+  removeStructTree: {
+    group: 'Structure and interactivity', type: 'boolean', default: false,
+    description: 'Drop the structure tree. Removes tagging, which screen readers rely on.',
+  },
+  removeThreads: {
+    group: 'Structure and interactivity', type: 'boolean', default: false,
+    description: 'Remove article threads.',
+  },
+  removeThumbnails: {
+    group: 'Metadata and cleanup', type: 'boolean', default: false,
+    description: 'Remove embedded page thumbnails.',
+  },
+  removeAppData: {
+    group: 'Metadata and cleanup', type: 'boolean', default: false,
+    description: 'Remove application-private data and piece info.',
+  },
+  removeSpiderInfo: {
+    group: 'Metadata and cleanup', type: 'boolean', default: false,
+    description: 'Remove web capture information.',
+  },
+  removeOutputIntents: {
+    group: 'Metadata and cleanup', type: 'boolean', default: false,
+    description: 'Remove output intents.',
+  },
+  preserveConformance: {
+    group: 'Output format', type: 'boolean', default: false,
+    description: 'Keep a PDF/A document conformant. Disables every step that would break the standard, including Brotli and rasterization; anything dropped is reported in warnings.',
+  },
+  brotli: {
+    group: 'Output format', type: 'boolean', default: false,
+    description: 'PDF 2.0 Brotli stream compression. Smaller files, but the reader must support it (MuPDF 1.26+, Ghostscript 10.06+, Firefox). Off while preserving PDF/A.',
+  },
+};

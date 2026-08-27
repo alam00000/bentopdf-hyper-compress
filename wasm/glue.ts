@@ -2,6 +2,10 @@ import { buildHyperTokens, normalizeHyperOptions, type HyperCompressOptions } fr
 import { HYPER_PRESETS, type CompressLevel } from '../sdk/node/presets.js';
 import { HyperError } from '../sdk/node/errors.js';
 import {
+  TARGET_QUALITY_FLOOR, TARGET_QUALITY_STEPS, targetLadder, targetMissWarning,
+  targetStartQuality,
+} from '../sdk/node/target.js';
+import {
   conformanceSafeOptions, formatPdfaLevel, packAllowedWhilePreserving, parsePdfaFromXmp,
   restoreHeaderVersion, stripPdfaFromXmp, type PdfaLevel,
 } from '../sdk/node/pdfa.js';
@@ -314,6 +318,10 @@ export function compressBuffer(
         outcome = 'preserved';
       }
     }
+    const metTarget = target != null ? out.length <= target : null;
+    if (metTarget === false && target != null) {
+      warnings.push(targetMissWarning(out.length, target));
+    }
     return {
       data: out,
       originalSize,
@@ -321,7 +329,7 @@ export function compressBuffer(
       signed,
       pdfa: claimed,
       pdfaOutcome: outcome,
-      metTarget: target != null ? out.length <= target : null,
+      metTarget,
       warnings,
     };
   };
@@ -350,10 +358,10 @@ export function compressBuffer(
 
   if (target != null && packed && !preserving && packed.length > target) {
     const baseOpts: HyperCompressOptions = { ...resolved, lossless: false };
-    const startQ = Math.min(95, baseOpts.imageQuality > 20 ? baseOpts.imageQuality : 80);
+    const startQ = targetStartQuality(baseOpts);
     let bestFit: Uint8Array | null = null;
     let smallest = packed;
-    let lo = 20;
+    let lo = TARGET_QUALITY_FLOOR;
     let hi = startQ - 1;
     let iterations = 0;
     const attempt = (o: HyperCompressOptions): Uint8Array | null => {
@@ -362,7 +370,7 @@ export function compressBuffer(
       const p = skipPack ? r.data : (packBuffer(mod, r.data) ?? r.data);
       return p && p.length > 0 ? p : null;
     };
-    while (lo <= hi && iterations < 6) {
+    while (lo <= hi && iterations < TARGET_QUALITY_STEPS) {
       iterations++;
       const q = Math.floor((lo + hi) / 2);
       const out = attempt({ ...baseOpts, imageQuality: q });
@@ -375,14 +383,12 @@ export function compressBuffer(
         hi = q - 1;
       }
     }
-    if (!bestFit) {
-      const out = attempt({
-        ...baseOpts, imageQuality: 20, maxDpi: 72, forceDownsample: true,
-      });
-      if (out) {
-        if (out.length <= target) bestFit = out;
-        else if (out.length < smallest.length) smallest = out;
-      }
+    for (const rung of targetLadder(baseOpts)) {
+      if (bestFit) break;
+      const out = attempt(rung);
+      if (!out) break;
+      if (out.length <= target) bestFit = out;
+      else if (out.length < smallest.length) smallest = out;
     }
     packed = bestFit ?? smallest;
   }
