@@ -1,6 +1,6 @@
 {
   "name": "hyper-compress-wasm",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Hyper Compress PDF engine compiled to WebAssembly. Runs on any platform, no native binaries.",
   "license": "AGPL-3.0-only",
   "type": "module",
