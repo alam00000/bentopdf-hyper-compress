@@ -1,12 +1,8 @@
 name: npm-publish
 on:
-  release:
-    types: [published]
-  workflow_call:
-    inputs:
-      tag:
-        required: true
-        type: string
+  workflow_run:
+    workflows: [release]
+    types: [completed]
   workflow_dispatch:
     inputs:
       tag:
@@ -20,13 +16,20 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-24.04
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       startsWith(github.event.workflow_run.head_branch, 'v'))
     env:
-      TAG: ${{ inputs.tag || github.event.release.tag_name }}
+      TAG: ${{ inputs.tag || github.event.workflow_run.head_branch }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.event.workflow_run.head_branch }}
       - uses: actions/setup-node@v7
         with:
           node-version: 22
+          registry-url: https://registry.npmjs.org
       - name: update npm for trusted publishing
         run: npm install -g npm@latest
       - name: npm auth

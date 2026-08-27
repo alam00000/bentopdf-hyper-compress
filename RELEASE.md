@@ -29,13 +29,21 @@ CI does the rest, in order:
 2. It publishes a GitHub Release with a `SHA256SUMS` file covering every
    artifact. The Windows job is allowed to fail without blocking the release;
    macOS and Linux are required.
-3. The `npm` job stamps every package version from the tag, fills the platform
-   packages from the release tarballs, assembles `hyper-compress-wasm` from
-   the wasm tarball, and publishes `hyper-compress`, `hyper-compress-wasm`,
+3. `npm-publish.yml` starts when `release.yml` finishes successfully. It stamps
+   every package version from the tag, fills the platform packages from the
+   release tarballs, assembles `hyper-compress-wasm` from the wasm tarball, and
+   publishes `hyper-compress`, `hyper-compress-wasm`,
    `hyper-compress-darwin-arm64`, `hyper-compress-linux-x64` and
    `hyper-compress-win32-x64` with provenance. A platform whose tarball is
    missing is skipped with a log line instead of aborting the publish; it
    ships in the next release.
+
+   It runs as its own workflow rather than a reusable one called by
+   `release.yml` on purpose: npm's trusted publishing validates the OIDC claim
+   against the calling workflow, so a `workflow_call` chain would check
+   `release.yml` and never match the publisher configured for
+   `npm-publish.yml`. To republish a tag whose packages did not reach npm, run
+   the `npm-publish` workflow manually with that tag.
 
 After the release, the nightly workflow starts exercising the new binaries:
 it downloads them, verifies checksums, and runs `make check` plus
