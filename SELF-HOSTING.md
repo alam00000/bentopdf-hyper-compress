@@ -54,11 +54,17 @@ Errors are JSON: `400 not_a_pdf` / `bad_preset` / `bad_options` /
 
 | env var | default | meaning |
 |---|---|---|
+| `HYPER_HOST` | 0.0.0.0 | listen address; set to 127.0.0.1 to bind localhost only |
 | `HYPER_PORT` | 8080 | listen port |
 | `HYPER_MAX_UPLOAD_MB` | 500 | reject larger uploads (engine hard cap is 2 GB) |
 | `HYPER_CONCURRENCY` | 2 | parallel compression jobs |
 | `HYPER_QUEUE` | 8 | jobs allowed to wait before 429 |
-| `HYPER_TIMEOUT_MS` | 600000 | per-job timeout |
+| `HYPER_TIMEOUT_MS` | 600000 | total per-request timeout across all stages |
+| `HYPER_API_TOKEN` | (unset) | when set, `/api/*` requires `Authorization: Bearer <token>` (or `x-api-token`) |
+
+The server has no authentication unless `HYPER_API_TOKEN` is set, and it binds
+all interfaces by default. On a public host, set a token or bind `HYPER_HOST`
+to localhost behind an authenticating reverse proxy.
 
 The container runs as a non-root user. Hostile input is parsed in a worker
 subprocess with a timeout; a crash kills the worker, not the service.

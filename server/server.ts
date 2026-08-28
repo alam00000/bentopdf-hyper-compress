@@ -2,16 +2,38 @@ import * as http from 'node:http';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import * as crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { compress, verifyPassword, HyperError } from '../sdk/node/index.js';
 import type { CompressLevel } from '../sdk/node/index.js';
 
-const PORT = Number(process.env.HYPER_PORT ?? 8080);
+function intEnv(name: string, dflt: number, min: number, max: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === '') return dflt;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return dflt;
+  return Math.min(max, Math.max(min, Math.floor(n)));
+}
+
+const PORT = intEnv('HYPER_PORT', 8080, 1, 65535);
 const HOST = process.env.HYPER_HOST ?? '0.0.0.0';
-const MAX_UPLOAD = Number(process.env.HYPER_MAX_UPLOAD_MB ?? 500) * 1024 * 1024;
-const CONCURRENCY = Math.max(1, Number(process.env.HYPER_CONCURRENCY ?? 2));
-const QUEUE_LIMIT = Math.max(0, Number(process.env.HYPER_QUEUE ?? 8));
-const TIMEOUT_MS = Number(process.env.HYPER_TIMEOUT_MS ?? 600_000);
+const MAX_UPLOAD = intEnv('HYPER_MAX_UPLOAD_MB', 500, 1, 1024 * 1024) * 1024 * 1024;
+const CONCURRENCY = intEnv('HYPER_CONCURRENCY', 2, 1, 1024);
+const QUEUE_LIMIT = intEnv('HYPER_QUEUE', 8, 0, 100_000);
+const TIMEOUT_MS = intEnv('HYPER_TIMEOUT_MS', 600_000, 1000, 24 * 60 * 60_000);
+const API_TOKEN = process.env.HYPER_API_TOKEN ?? '';
+
+function authorized(req: http.IncomingMessage): boolean {
+  if (!API_TOKEN) return true;
+  const header = req.headers['authorization'];
+  const xtoken = req.headers['x-api-token'];
+  let provided = '';
+  if (typeof header === 'string' && header.startsWith('Bearer ')) provided = header.slice(7);
+  else if (typeof xtoken === 'string') provided = xtoken;
+  const a = Buffer.from(provided);
+  const b = Buffer.from(API_TOKEN);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const INDEX_HTML = (() => {
@@ -94,7 +116,10 @@ async function handleCompress(req: http.IncomingMessage, res: http.ServerRespons
   const preset = custom ? undefined : (presetRaw as CompressLevel);
   const targetRaw = url.searchParams.get('targetSizeBytes');
   const targetSizeBytes = targetRaw ? Number(targetRaw) : undefined;
-  if (targetRaw && !(targetSizeBytes! > 0)) {
+  if (
+    targetRaw &&
+    !(typeof targetSizeBytes === 'number' && Number.isFinite(targetSizeBytes) && targetSizeBytes > 0)
+  ) {
     sendJson(res, 400, { error: 'bad_target_size' });
     return;
   }
@@ -155,6 +180,7 @@ async function handleCompress(req: http.IncomingMessage, res: http.ServerRespons
         : undefined,
       targetSizeBytes,
       timeoutMs: TIMEOUT_MS,
+      totalTimeoutMs: TIMEOUT_MS,
     });
     const out = await fs.promises.readFile(r.outputPath);
     res.writeHead(200, {
@@ -175,6 +201,32 @@ async function handleCompress(req: http.IncomingMessage, res: http.ServerRespons
     } else {
       sendJson(res, 500, { error: 'internal' });
     }
+  } finally {
+    release();
+    fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+async function handleVerify(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+  const password = req.headers['x-password'];
+  const ok = await acquire();
+  if (!ok) {
+    sendJson(res, 429, { error: 'busy', detail: 'queue full, retry later' });
+    return;
+  }
+  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hyperv-'));
+  try {
+    const body = await readBody(req, MAX_UPLOAD);
+    if (body === null) {
+      sendJson(res, 413, { error: 'too_large', maxBytes: MAX_UPLOAD });
+      return;
+    }
+    const src = path.join(dir, 'in.pdf');
+    await fs.promises.writeFile(src, body);
+    const valid = await verifyPassword(src, typeof password === 'string' ? password : '');
+    sendJson(res, 200, { valid });
+  } catch {
+    sendJson(res, 500, { error: 'internal' });
   } finally {
     release();
     fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {});
@@ -209,28 +261,12 @@ const server = http.createServer((req, res) => {
     }
   }
   if (req.method === 'POST' && url.pathname === '/api/verify-password') {
-    void (async () => {
-      const password = req.headers['x-password'];
-      const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hyperv-'));
-      try {
-        const body = await readBody(req, MAX_UPLOAD);
-        if (body === null) {
-          sendJson(res, 413, { error: 'too_large', maxBytes: MAX_UPLOAD });
-          return;
-        }
-        const src = path.join(dir, 'in.pdf');
-        await fs.promises.writeFile(src, body);
-        const valid = await verifyPassword(src, typeof password === 'string' ? password : '');
-        sendJson(res, 200, { valid });
-      } catch {
-        sendJson(res, 500, { error: 'internal' });
-      } finally {
-        fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {});
-      }
-    })();
+    if (!authorized(req)) { sendJson(res, 401, { error: 'unauthorized' }); return; }
+    void handleVerify(req, res);
     return;
   }
   if (req.method === 'POST' && url.pathname === '/api/compress') {
+    if (!authorized(req)) { sendJson(res, 401, { error: 'unauthorized' }); return; }
     void handleCompress(req, res, url);
     return;
   }

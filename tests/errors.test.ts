@@ -39,6 +39,50 @@ test('a wrong password on an encrypted file rejects as decrypt_failed', opts, as
   }
 });
 
+test('a correct password decrypts and compresses through the stdin path', opts, async () => {
+  const { spawnSync } = await import('node:child_process');
+  const dir = mkdtempSync(path.join(tmpdir(), 'hyper-enc-ok-'));
+  try {
+    const plain = path.join(dir, 'plain.pdf');
+    const enc = path.join(dir, 'enc.pdf');
+    const out = path.join(dir, 'out.pdf');
+    writeFileSync(plain, textPdf());
+    const qpdf = process.env.HYPER_QPDF ??
+      path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '..', 'cli', 'prebuilt', 'qpdf');
+    const r = spawnSync(qpdf, ['--encrypt', 'user', 'owner', '256', '--', plain, enc]);
+    if (r.status !== 0) {
+      return;
+    }
+    const result = await compress({ sourcePath: enc, savePath: out, password: 'user' });
+    assert.ok(result.compressedSize > 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('an exhausted total-timeout budget surfaces as timeout, not decrypt_failed', opts, async () => {
+  const { spawnSync } = await import('node:child_process');
+  const dir = mkdtempSync(path.join(tmpdir(), 'hyper-enc-to-'));
+  try {
+    const plain = path.join(dir, 'plain.pdf');
+    const enc = path.join(dir, 'enc.pdf');
+    const out = path.join(dir, 'out.pdf');
+    writeFileSync(plain, textPdf());
+    const qpdf = process.env.HYPER_QPDF ??
+      path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '..', 'cli', 'prebuilt', 'qpdf');
+    const r = spawnSync(qpdf, ['--encrypt', 'user', 'owner', '256', '--', plain, enc]);
+    if (r.status !== 0) {
+      return;
+    }
+    await assert.rejects(
+      () => compress({ sourcePath: enc, savePath: out, password: 'user', totalTimeoutMs: 1 }),
+      (err: unknown) => err instanceof HyperError && err.code === 'timeout',
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('corrupt input degrades to the original bytes, not a throw', opts, async () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'hyper-bad-'));
   try {

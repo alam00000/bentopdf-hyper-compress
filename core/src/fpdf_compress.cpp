@@ -6056,10 +6056,17 @@ class HyperConvertToBitmap {
 
     const double width_pts = FPDF_GetPageWidthF(page);
     const double height_pts = FPDF_GetPageHeightF(page);
-    const int target_w =
-        std::max(1, static_cast<int>(width_pts * dpi / 72.0));
-    const int target_h =
-        std::max(1, static_cast<int>(height_pts * dpi / 72.0));
+    const double raw_w = width_pts * dpi / 72.0;
+    const double raw_h = height_pts * dpi / 72.0;
+    static constexpr double kMaxRasterPixels = 256.0 * 1024.0 * 1024.0;
+    if (!(raw_w >= 1.0) || !(raw_h >= 1.0) ||
+        raw_w * raw_h > kMaxRasterPixels) {
+      FORM_OnBeforeClosePage(page, form_handle_);
+      FPDF_ClosePage(page);
+      return;
+    }
+    const int target_w = static_cast<int>(raw_w);
+    const int target_h = static_cast<int>(raw_h);
 
     FPDF_BITMAP fpdf_bm = FPDFBitmap_Create(target_w, target_h, 0);
     if (!fpdf_bm) {

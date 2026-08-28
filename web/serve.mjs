@@ -24,7 +24,13 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  const rel = decodeURIComponent(url.pathname);
+  let rel;
+  try {
+    rel = decodeURIComponent(url.pathname);
+  } catch {
+    res.writeHead(400, { 'content-type': 'text/plain' }).end('bad request');
+    return;
+  }
   const filePath = path.join(ROOT, rel);
 
   if (!filePath.startsWith(ROOT + path.sep)) {

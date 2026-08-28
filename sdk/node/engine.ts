@@ -83,6 +83,7 @@ export interface CompressInput {
   targetSizeBytes?: number | undefined;
   signal?: AbortSignal | undefined;
   timeoutMs?: number | undefined;
+  totalTimeoutMs?: number | undefined;
 }
 
 export interface CompressResult {
@@ -116,7 +117,14 @@ function stageSpawnOpts(limits?: StageLimits): {
 }
 
 function throwIfAborted(signal: AbortSignal | undefined): void {
-  if (signal?.aborted) throw new HyperError('cancelled');
+  if (signal?.aborted) {
+    const reason: unknown = signal.reason;
+    throw reason instanceof HyperError ? reason : new HyperError('cancelled');
+  }
+}
+
+function safeArgPath(p: string): string {
+  return path.resolve(p);
 }
 
 function driverPath(): string {
@@ -138,7 +146,7 @@ function runDriver(
   limits?: StageLimits,
 ): Promise<{ ok: boolean; signed: boolean; note: string | null }> {
   return new Promise((resolve) => {
-    const child = spawn(driverPath(), [inPath, outPath, ...tokens], {
+    const child = spawn(driverPath(), [safeArgPath(inPath), safeArgPath(outPath), ...tokens], {
       stdio: ['ignore', 'ignore', 'pipe'],
       ...stageSpawnOpts(limits),
     });
@@ -171,15 +179,32 @@ function runQpdfPack(inPath: string, outPath: string, limits?: StageLimits): Pro
     '--object-streams=generate',
     '--recompress-flate',
     '--compression-level=9',
-    inPath,
-    outPath,
+    safeArgPath(inPath),
+    safeArgPath(outPath),
   ], limits);
 }
 
 async function runQpdfDecrypt(inPath: string, outPath: string, password: string, limits?: StageLimits): Promise<void> {
-  requireBin('HYPER_QPDF', 'qpdf');
-  const ok = await runQpdf(['--warning-exit-0', `--password=${password}`, '--decrypt', inPath, outPath], limits);
-  if (!ok) throw new HyperError('decrypt_failed');
+  const bin = requireBin('HYPER_QPDF', 'qpdf');
+  const ok = await new Promise<boolean>((resolve) => {
+    const child = spawn(
+      bin,
+      ['--warning-exit-0', '--password-file=-', '--decrypt', safeArgPath(inPath), safeArgPath(outPath)],
+      { stdio: ['pipe', 'ignore', 'ignore'], ...stageSpawnOpts(limits) },
+    );
+    child.on('error', () => resolve(false));
+    child.on('close', (code) => resolve(code === 0));
+    const stdin = child.stdin;
+    if (stdin) {
+      stdin.on('error', () => {});
+      const firstLine = password.split('\n', 1)[0] ?? '';
+      stdin.end(firstLine);
+    }
+  });
+  if (!ok) {
+    throwIfAborted(limits?.signal);
+    throw new HyperError('decrypt_failed');
+  }
 }
 
 export function resolveOptions(input: CompressInput): HyperCompressOptions {
@@ -210,8 +235,24 @@ export async function compress(input: CompressInput): Promise<CompressResult> {
   const password =
     typeof input.password === 'string' && input.password.length > 0 ? input.password : null;
   const originalSize = (await fs.promises.stat(input.sourcePath)).size;
+
+  const overall = new AbortController();
+  const totalTimeoutMs = input.totalTimeoutMs;
+  let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+  if (typeof totalTimeoutMs === 'number' && totalTimeoutMs > 0) {
+    deadlineTimer = setTimeout(() => {
+      overall.abort(new HyperError('timeout'));
+    }, totalTimeoutMs);
+    deadlineTimer.unref();
+  }
+  const effectiveSignal: AbortSignal | undefined = deadlineTimer
+    ? input.signal
+      ? AbortSignal.any([input.signal, overall.signal])
+      : overall.signal
+    : input.signal;
+
   const limits: StageLimits = {
-    signal: input.signal,
+    signal: effectiveSignal,
     timeoutMs: input.timeoutMs ?? DEFAULT_STAGE_TIMEOUT_MS,
   };
 
@@ -277,6 +318,7 @@ export async function compress(input: CompressInput): Promise<CompressResult> {
 
     const { ok, signed, note } = await runDriver(workIn, drvOut, tokens, limits);
     if (note) warnings.push(note);
+    throwIfAborted(effectiveSignal);
 
     if (ok && signed) {
       await fs.promises.copyFile(fallbackBase, finalPath);
@@ -327,7 +369,7 @@ export async function compress(input: CompressInput): Promise<CompressResult> {
         let iterations = 0;
         while (lo <= hi && iterations < TARGET_QUALITY_STEPS) {
           iterations++;
-          throwIfAborted(input.signal);
+          throwIfAborted(effectiveSignal);
           const q = Math.floor((lo + hi) / 2);
           const res = await runAttempt(
             { ...baseOpts, imageQuality: q },
@@ -350,7 +392,7 @@ export async function compress(input: CompressInput): Promise<CompressResult> {
         }
         for (const rung of targetLadder(baseOpts)) {
           if (bestFit) break;
-          throwIfAborted(input.signal);
+          throwIfAborted(effectiveSignal);
           const res = await runAttempt(rung, attemptDrv, attemptPack);
           if (!res.candidate) break;
           const size = await statSize(res.candidate);
@@ -365,6 +407,8 @@ export async function compress(input: CompressInput): Promise<CompressResult> {
         packed = bestFit ? bestFit.path : smallest.path;
       }
     }
+
+    throwIfAborted(effectiveSignal);
 
     if (packed) {
       const packedSize = await statSize(packed);
@@ -401,6 +445,7 @@ export async function compress(input: CompressInput): Promise<CompressResult> {
       warnings,
     };
   } finally {
+    if (deadlineTimer) clearTimeout(deadlineTimer);
     try {
       await fs.promises.rm(tmpDir, { recursive: true, force: true });
     } catch {

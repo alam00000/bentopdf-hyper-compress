@@ -15,9 +15,20 @@ int main(int argc, char** argv) {
   if (!doc) { fprintf(stderr, "load failed err=%lu\n", FPDF_GetLastError()); return 3; }
   FPDF_PAGE page = FPDF_LoadPage(doc, 0);
   if (!page) { fprintf(stderr, "page load failed\n"); return 4; }
-  int w = (int)(FPDF_GetPageWidth(page) * scale);
-  int h = (int)(FPDF_GetPageHeight(page) * scale);
+  double raw_w = FPDF_GetPageWidth(page) * scale;
+  double raw_h = FPDF_GetPageHeight(page) * scale;
+  if (!(raw_w >= 1.0) || !(raw_h >= 1.0) ||
+      raw_w * raw_h > 256.0 * 1024.0 * 1024.0) {
+    fprintf(stderr, "page too large: %gx%g\n", raw_w, raw_h);
+    FPDF_ClosePage(page); FPDF_CloseDocument(doc); return 5;
+  }
+  int w = (int)raw_w;
+  int h = (int)raw_h;
   FPDF_BITMAP bmp = FPDFBitmap_Create(w, h, 0);
+  if (!bmp) {
+    fprintf(stderr, "bitmap alloc failed for %dx%d\n", w, h);
+    FPDF_ClosePage(page); FPDF_CloseDocument(doc); return 5;
+  }
   FPDFBitmap_FillRect(bmp, 0, 0, w, h, 0xFFFFFFFF);
   FPDF_RenderPageBitmap(bmp, page, 0, 0, w, h, 0, FPDF_ANNOT);
   const uint8_t* buf = (const uint8_t*)FPDFBitmap_GetBuffer(bmp);

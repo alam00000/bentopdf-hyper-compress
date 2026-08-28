@@ -5,6 +5,8 @@ DRV="$HERE/prebuilt/hpdf-worker"
 QPDF="$HERE/prebuilt/qpdf"; [ -x "$QPDF" ] || QPDF="qpdf"
 
 IN="${1:?in}"; OUT="${2:?out}"; shift 2
+case "$IN" in -*) IN="./$IN" ;; esac
+case "$OUT" in -*) OUT="./$OUT" ;; esac
 PASSWORD="${HYPER_PASSWORD:-}"
 [ -f "$IN" ] || { echo "no input: $IN" >&2; exit 2; }
 [ -x "$DRV" ] || { echo "missing $DRV  - run core/build/build-native.sh" >&2; exit 2; }
@@ -25,7 +27,7 @@ pack() {
 WORKIN="$IN"
 FALLBACK="$IN"
 if [ -n "$PASSWORD" ]; then
-  if ! "$QPDF" --warning-exit-0 --password="$PASSWORD" --decrypt "$IN" "$DEC" 2>/dev/null; then
+  if ! printf '%s' "$PASSWORD" | "$QPDF" --warning-exit-0 --password-file=- --decrypt "$IN" "$DEC" 2>/dev/null; then
     echo "decrypt failed" >&2; exit 3
   fi
   WORKIN="$DEC"; FALLBACK="$DEC"

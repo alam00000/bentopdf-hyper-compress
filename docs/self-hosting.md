@@ -29,11 +29,13 @@ Set these with `-e` flags or in your compose file:
 
 | Env var | Default | Meaning |
 |---|---|---|
+| `HYPER_HOST` | 0.0.0.0 | listen address; set to 127.0.0.1 to bind localhost only |
 | `HYPER_PORT` | 8080 | listen port inside the container |
 | `HYPER_MAX_UPLOAD_MB` | 500 | reject larger uploads (the engine's hard cap is 2 GB) |
 | `HYPER_CONCURRENCY` | 2 | parallel compression jobs |
 | `HYPER_QUEUE` | 8 | jobs allowed to wait before new ones get 429 |
-| `HYPER_TIMEOUT_MS` | 600000 | per-job timeout (10 minutes) |
+| `HYPER_TIMEOUT_MS` | 600000 | total per-request timeout across all stages (10 minutes) |
+| `HYPER_API_TOKEN` | (unset) | when set, `/api/*` requires `Authorization: Bearer <token>` (or `x-api-token`); unauthenticated otherwise |
 
 Each job is a separate engine process, so size `HYPER_CONCURRENCY` to your cores and memory: 2 is right for a small VPS, 4 to 8 for a real server.
 
