@@ -4,7 +4,7 @@ const SITE_URL = 'https://hyper.bentopdf.com'
 
 export default defineConfig({
     title: "Hyper Compress Docs",
-    description: "Documentation for Hyper Compress - the high fidelity, content preserving PDF compression engine by BentoPDF",
+    description: "Documentation for Hyper Compress - the high fidelity, content preserving PDF compression engine built by the BentoPDF team",
     base: '/docs/',
     cleanUrls: true,
     srcExclude: ['npm-README.md'],

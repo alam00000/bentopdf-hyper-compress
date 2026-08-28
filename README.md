@@ -8,7 +8,7 @@
 
 Hyper Compress is a high fidelity, content preserving PDF compression engine built to make PDFs smaller without unnecessarily changing the document.
 
-Hyper Compress is a part of  [BentoPDF](https://github.com/alam00000/bentopdf) suite. The same  engine is available as a CLI, Node SDK, C library, self hosted service, and a WebAssembly build that runs entirely in the browser.
+Hyper Compress is built by the [BentoPDF](https://github.com/alam00000/bentopdf) team. The same engine is available as a CLI, Node SDK, C library, self hosted service, and a WebAssembly build that runs entirely in the browser.
 
 Try it at [hyper.bentopdf.com](https://hyper.bentopdf.com). Full documentation lives at [hyper.bentopdf.com/docs](https://hyper.bentopdf.com/docs/).
 

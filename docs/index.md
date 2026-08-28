@@ -32,7 +32,7 @@ features:
 
 ## What is Hyper Compress
 
-Hyper Compress is the PDF compression engine behind [BentoPDF](https://www.bentopdf.com). It works throughout the entire PDF, finding the best way to reduce size without compromising fidelity.
+Hyper Compress is built by the [BentoPDF](https://www.bentopdf.com) team. It works throughout the entire PDF, finding the best way to reduce size without compromising fidelity.
 
 Hyper optimizes images, fonts, content and duplicate data, choosing the best compression method for each part of the document. Every change is checked, and anything that could affect the result is automatically rolled back.
 
