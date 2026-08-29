@@ -1,8 +1,10 @@
 import { HYPER_PRESETS } from '../dist/sdk/node/presets.js';
 import { normalizeHyperOptions } from '../dist/sdk/node/options.js';
 import { renderOptions, sameOptions } from './options-ui.js';
+import { icon, mountIcons } from './icons/phosphor.js';
 
 export function initApp(createEngine) {
+  mountIcons();
   const $ = (id) => document.getElementById(id);
   const drop = $('drop'), fileInput = $('file'), runBtn = $('run');
   const statusEl = $('status'), resultsEl = $('results'), resultPanel = $('resultPanel');
@@ -23,6 +25,16 @@ export function initApp(createEngine) {
     if (n < 1000) return `${n} B`;
     if (n < 1000 * 1000) return `${(n / 1000).toFixed(1)} KB`;
     return `${(n / 1000 / 1000).toFixed(2)} MB`;
+  };
+
+  const withIcon = (tag, cls, name, text) => {
+    const node = document.createElement(tag);
+    if (cls) node.className = cls;
+    node.appendChild(icon(name));
+    const span = document.createElement('span');
+    span.textContent = text;
+    node.appendChild(span);
+    return node;
   };
 
   function setStatus(msg, isError = false) {
@@ -147,28 +159,23 @@ export function initApp(createEngine) {
   function statusNode(f) {
     const div = document.createElement('div');
     div.className = 'tool-file-status';
-    const span = document.createElement('span');
+    let span;
     if (f.status === 'compressing') {
-      span.className = 'busy';
-      span.textContent = 'Compressing...';
+      span = withIcon('span', 'busy', 'hourglass-medium', 'Compressing...');
     } else if (f.status === 'failed') {
-      span.className = 'err';
-      span.textContent = f.error || 'failed';
+      span = withIcon('span', 'err', 'x-circle', f.error || 'failed');
     } else if (f.status === 'done' && f.result) {
-      span.className = 'ok';
       const pct = 100 * (1 - f.result.compressedSize / f.result.originalSize);
-      span.textContent = f.result.compressedSize >= f.result.originalSize
+      const text = f.result.compressedSize >= f.result.originalSize
         ? 'No gain, original kept'
         : `${fmtBytes(f.result.compressedSize)} (${pct >= 0.05 ? '-' + pct.toFixed(1) + '%' : 'same'})`;
+      span = withIcon('span', 'ok', 'check-circle', text);
     } else {
       return null;
     }
     div.appendChild(span);
     if (f.status === 'done' && f.result && f.result.warnings && f.result.warnings.length) {
-      const warn = document.createElement('span');
-      warn.className = 'warn';
-      warn.textContent = ' · ' + f.result.warnings.join(' · ');
-      div.appendChild(warn);
+      div.appendChild(withIcon('span', 'warn', 'warning', f.result.warnings.join(' · ')));
     }
     return div;
   }
@@ -200,11 +207,9 @@ export function initApp(createEngine) {
     dots.textContent = ' · ';
     if (f.encrypted) {
       sub.append(dots.cloneNode(true));
-      const lock = document.createElement('span');
-      lock.className = 'lock-badge' + (f.verified ? ' unlocked' : '');
-      lock.textContent = f.verified ? 'Unlocked' : 'Locked';
+      const lock = withIcon('span', 'lock-badge' + (f.verified ? ' unlocked' : ''),
+        f.verified ? 'lock-open' : 'lock', f.verified ? 'Unlocked' : 'Locked');
       if (f.verified) {
-        lock.style.cursor = 'pointer';
         lock.title = 'Change password';
         lock.addEventListener('click', () => { f.verified = false; updateFileRow(f); });
       }
@@ -222,15 +227,13 @@ export function initApp(createEngine) {
       pw.autocomplete = 'off';
       pw.value = f.password || '';
       pw.addEventListener('input', () => { f.password = pw.value; });
-      const unlock = document.createElement('button');
-      unlock.className = 'btn-ghost';
+      const unlock = withIcon('button', 'btn-ghost', 'lock-key', 'Unlock');
       unlock.type = 'button';
-      unlock.textContent = 'Unlock';
       const doUnlock = async () => {
         f.password = pw.value;
         if (!f.password) return;
         unlock.disabled = true;
-        unlock.textContent = 'Checking...';
+        unlock.lastChild.textContent = 'Checking...';
         try {
           f.verified = await engine.verifyPassword(f);
           f.pwError = f.verified ? '' : 'Wrong password';
@@ -255,10 +258,8 @@ export function initApp(createEngine) {
     const actions = document.createElement('div');
     actions.className = 'tool-file-actions';
     if (f.status === 'done' && f.result && f.result.data) {
-      const save = document.createElement('button');
-      save.className = 'btn-ghost';
+      const save = withIcon('button', 'btn-ghost', 'download-simple', 'Save');
       save.type = 'button';
-      save.textContent = 'Save';
       save.addEventListener('click', () => {
         downloadBlob(new Blob([f.result.data], { type: 'application/pdf' }),
           f.name.replace(/\.pdf$/i, '') + `-${f.result.preset}.pdf`);
@@ -268,7 +269,7 @@ export function initApp(createEngine) {
     const rm = document.createElement('button');
     rm.className = 'icon-x';
     rm.type = 'button';
-    rm.textContent = '✕';
+    rm.appendChild(icon('x'));
     rm.title = 'Remove';
     rm.disabled = running;
     rm.addEventListener('click', () => {
@@ -411,9 +412,7 @@ export function initApp(createEngine) {
       cell(tr, `${r.ms} ms`);
       const actions = cell(tr, '');
       if (r.data) {
-        const btn = document.createElement('button');
-        btn.className = 'btn-ghost';
-        btn.textContent = 'Save';
+        const btn = withIcon('button', 'btn-ghost', 'download-simple', 'Save');
         btn.addEventListener('click', () => {
           downloadBlob(new Blob([r.data], { type: 'application/pdf' }),
             file.name.replace(/\.pdf$/i, '') + `-${r.preset}.pdf`);

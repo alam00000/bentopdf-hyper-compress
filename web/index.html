@@ -4,11 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Hyper Compress · BentoPDF</title>
+<link rel="icon" href="./images/logo.svg" type="image/svg+xml">
 <link rel="stylesheet" href="./app.css">
 </head>
 <body>
 <header class="tool-header">
-  <div class="brand">
+  <a class="brand" href="https://www.bentopdf.com">
     <svg width="28" height="28" viewBox="0 0 166 166" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
     <g transform="translate(40, 0)">
     <path d="M56.7848 80.9116L0 25.6211L24.8434 1.43151C26.8037 -0.47717 29.9814 -0.47717 31.9414 1.43151L85.177 53.2662L56.7848 80.9116Z" fill="#A5B4FC"/>
@@ -18,25 +19,26 @@
     </svg>
     <span class="bname">BentoPDF</span>
     <span class="tname">Hyper Compress</span>
-  </div>
+  </a>
   <div class="tool-header-actions">
-    <a class="btn-ghost" href="/docs/">Docs</a>
-    <button class="btn-ghost" id="addBtn" type="button">Add files</button>
-    <button class="btn-ghost" id="clearBtn" type="button" disabled>Clear</button>
+    <button class="btn" id="addBtn" type="button"><span class="ic" data-icon="plus"></span>Add files</button>
+    <button class="btn-ghost" id="clearBtn" type="button" disabled><span class="ic" data-icon="trash"></span>Clear</button>
   </div>
+  <a class="btn-ghost docs-link" href="/docs/"><span class="ic" data-icon="book-open"></span>Docs</a>
 </header>
 
 <div class="tool-body">
   <section class="tool-left">
     <div class="tool-dropzone" id="drop" role="button" tabindex="0" aria-label="Choose PDFs">
       <div class="tool-dropzone-inner">
+        <span class="ic" data-icon="upload-simple"></span>
         <strong>Drop PDFs here</strong>
         <span>or click to choose files</span>
       </div>
       <input id="file" type="file" accept="application/pdf,.pdf" multiple hidden>
     </div>
     <ul class="tool-file-list hidden" id="fileList"></ul>
-    <div class="addstrip hidden" id="addStrip">Drop more PDFs or click to add</div>
+    <div class="addstrip hidden" id="addStrip"><span class="ic" data-icon="plus"></span>Drop more PDFs or click to add</div>
     <div class="hidden" id="resultPanel">
       <table>
         <thead>
@@ -79,8 +81,8 @@
     <hr class="tool-field-divider">
 
     <div class="opt-head">
-      <span class="tool-field-label">Advanced options</span>
-      <button class="btn-ghost" id="reset" type="button">Reset</button>
+      <span class="tool-field-label"><span class="ic" data-icon="wrench"></span>Advanced options</span>
+      <button class="btn-ghost" id="reset" type="button"><span class="ic" data-icon="arrow-clockwise"></span>Reset</button>
     </div>
     <div id="options"></div>
 

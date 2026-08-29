@@ -35,6 +35,7 @@ COPY --from=app /engine/node_modules node_modules
 COPY --from=app /engine/package.json package.json
 COPY web/index.html web/options-ui.js web/app.js web/app.css web/engine-http.js web/
 COPY web/fonts web/fonts
+COPY web/icons web/icons
 COPY docker/entrypoint.sh /entrypoint.sh
 COPY --from=native /engine/cli/prebuilt/hpdf-worker /engine/cli/prebuilt/hpdf-render cli/prebuilt/
 ENV HYPER_QPDF=/usr/bin/qpdf
