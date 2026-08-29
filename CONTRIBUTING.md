@@ -47,8 +47,8 @@ must be zero.
 - The output must never grow and never break: anything that can degrade a
   document has to be guarded by verification or a rollback, like the existing
   regeneration and JBIG2 checks.
-- Fuzzing runs continuously (Google's hosted OSS-Fuzz, `make fuzz` locally). If
-  your change touches parsing paths, run the fuzzer for a while before opening
-  the PR.
+- Fuzzing runs through ClusterFuzzLite on every pull request that touches the
+  engine, and `make fuzz` runs the same harness locally. If your change touches
+  parsing paths, run the fuzzer for a while before opening the PR.
 - No comments policy: the code in this repository is deliberately
   comment-free; write code that doesn't need them.

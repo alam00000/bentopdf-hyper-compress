@@ -127,6 +127,6 @@ for the per-platform release builds.
 
 The checked build recipe is macOS arm64. Linux x64 builds the same way with
 `target_os="linux"` in `args.gn`; `docker/Dockerfile` and
-`oss-fuzz/projects/hyper-compress/build.sh` both script it end to end. Windows needs a PDFium
+`.clusterfuzzlite/build.sh` both script it end to end. Windows needs a PDFium
 Windows build with the same source-set additions plus the platform link step;
 the leptonica and afdko overlays already carry the clang-cl fixes.

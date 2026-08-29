@@ -52,4 +52,4 @@ make bench CORPUS=path/to/dir
 make fuzz       # libFuzzer harness
 ```
 
-`make regress` is the gate for bug fixes: every PDF in the failset once exposed a real bug, and a clean run reports zero failing pairs. Continuous fuzzing runs through Google's OSS-Fuzz.
+`make regress` is the gate for bug fixes: every PDF in the failset once exposed a real bug, and a clean run reports zero failing pairs. Fuzzing runs through ClusterFuzzLite on every pull request that touches the engine.

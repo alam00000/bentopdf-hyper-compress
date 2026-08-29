@@ -266,7 +266,7 @@ Every PDF in `tests/regression/failset/` represents a file that previously expos
 
 A clean run reports zero failing pairs.
 
-Continuous fuzzing runs through Google's OSS-Fuzz, and discovered crashes are pinned as regression seeds.
+Fuzzing runs through ClusterFuzzLite on every pull request that touches the engine, and discovered crashes are pinned as regression seeds.
 
 ---
 

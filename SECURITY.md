@@ -6,10 +6,10 @@ worker, not the host; the WebAssembly build runs in the runtime sandbox. Inputs
 over 2 GB are refused, decoded images are capped at 256 megapixels, and every
 buffer writer uses overflow-checked arithmetic.
 
-Continuous fuzzing runs on Google's hosted OSS-Fuzz infrastructure; the
-project definition lives under `oss-fuzz/projects/hyper-compress/`.
-`make fuzz` runs the same libFuzzer harness locally. Crashes found by fuzzing
-are pinned as regression seeds in `fuzz/corpus/`.
+Fuzzing runs through ClusterFuzzLite on every pull request that touches the
+engine; the configuration lives under `.clusterfuzzlite/`. `make fuzz` runs the
+same libFuzzer harness locally for longer sessions. Crashes found by fuzzing are
+pinned as regression seeds in `fuzz/corpus/`.
 
 ## Reporting a vulnerability
 

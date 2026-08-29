@@ -41,5 +41,5 @@ Whenever the engine does less than you asked for instead of doing something unsa
 
 Malformed PDFs can crash or hang software. Hyper isolates parsing so a bad file doesn't take down your application or service.
 
-The engine is also continuously tested with fuzzing via Google's OSS-Fuzz, and every crash we find is turned into a permanent regression test.
+The engine is also fuzzed through ClusterFuzzLite on every pull request that touches it, and every crash we find is turned into a permanent regression test.
 
