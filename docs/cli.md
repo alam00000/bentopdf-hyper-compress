@@ -26,9 +26,15 @@ If the engine skipped anything you asked for, it prints `warning:` lines to stde
 ## Usage
 
 ```
-hyper <input.pdf> <output.pdf> [--preset low|medium|high|lossless]
+hyper <input.pdf> [output.pdf] [--preset low|medium|high|lossless]
                                [--password PW] [--set key=value ...]
                                [--brotli] [--target-size N[KB|MB]]
+```
+
+The output path is optional. Leave it out and the result is written next to the input as `<input>-compressed.pdf`:
+
+```bash
+hyper report.pdf        # writes report-compressed.pdf
 ```
 
 Two flags answer questions rather than compress anything:

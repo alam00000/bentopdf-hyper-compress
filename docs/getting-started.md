@@ -33,19 +33,19 @@ Supported platforms for the native engine: macOS on Apple silicon, Linux x64, Wi
 
 ```bash
 npm install -g hyper-compress
-hyper input.pdf output.pdf
+hyper input.pdf
 ```
 
 You should see something like:
 
 ```
-output.pdf
+input-compressed.pdf
   2593056 -> 1250960 bytes (52% smaller)
 ```
 
-That is the whole workflow. The first line is where the result was written; the second is the input size, the output size, and the saving.
+That is the whole workflow. The first line is where the result was written, next to your input as `<input>-compressed.pdf`; the second is the input size, the output size, and the saving. To choose the output name yourself, pass it as a second argument: `hyper input.pdf smaller.pdf`.
 
-Prefer not to install globally? `npx hyper input.pdf output.pdf` works from any folder after `npm install hyper-compress` in that folder.
+Prefer not to install globally? `npx hyper input.pdf` works from any folder after `npm install hyper-compress` in that folder.
 
 Common variations:
 

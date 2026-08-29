@@ -57,3 +57,34 @@ test('the bin runs when invoked through a symlink, as npm installs it', async ()
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('the output path is optional and defaults beside the input', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const { mkdtempSync, copyFileSync, existsSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const path = (await import('node:path')).default;
+  const { fileURLToPath } = await import('node:url');
+  const { hasEngine } = await import('./helpers.js');
+  if (!hasEngine()) return;
+
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const root = path.resolve(here, '..', '..');
+  const dir = mkdtempSync(path.join(tmpdir(), 'hyper-defaultout-'));
+  try {
+    const src = path.join(dir, 'report.pdf');
+    copyFileSync(
+      path.join(root, 'tests', 'regression', 'failset', 'govdocs001-0142b23c0caa.pdf'),
+      src,
+    );
+    const r = spawnSync(process.execPath, [path.join(root, 'dist', 'cli', 'bin', 'hyper.js'), src], {
+      encoding: 'utf8',
+    });
+    assert.equal(r.status, 0, `expected success, got: ${r.stderr}`);
+    assert.ok(
+      existsSync(path.join(dir, 'report-compressed.pdf')),
+      'expected report-compressed.pdf beside the input',
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

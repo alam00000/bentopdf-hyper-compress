@@ -19,7 +19,7 @@ export interface Parsed {
 const PRESETS: readonly CompressLevel[] = ['low', 'medium', 'high', 'lossless'];
 
 const USAGE =
-  'usage: hyper <input.pdf> <output.pdf> [--preset low|medium|high|lossless]\n' +
+  'usage: hyper <input.pdf> [output.pdf] [--preset low|medium|high|lossless]\n' +
   '                                      [--password PW] [--set key=value ...]\n' +
   '                                      [--brotli] [--target-size N[KB|MB]]\n';
 
@@ -35,7 +35,11 @@ options:
   -h, --help            show this help
   -v, --version         show the version
 
+Leave out the output path and the result is written next to the input as
+<input>-compressed.pdf.
+
 examples:
+  hyper report.pdf
   hyper in.pdf out.pdf
   hyper in.pdf out.pdf --preset high
   hyper scan.pdf out.pdf --target-size 2MB
@@ -132,7 +136,6 @@ async function main(): Promise<void> {
     return;
   }
   if (!p.input) usage('an input PDF is required');
-  if (!p.output) usage('an output path is required');
   const res = await compress({
     sourcePath: p.input,
     savePath: p.output,

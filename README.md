@@ -113,6 +113,8 @@ To build the engine yourself, see [BUILDING.md](https://github.com/alam00000/ben
 ### CLI
 
 ```bash
+hyper input.pdf                                     # writes input-compressed.pdf
+
 hyper input.pdf output.pdf                          # medium preset (default)
 
 hyper input.pdf output.pdf --preset high            # smallest output
