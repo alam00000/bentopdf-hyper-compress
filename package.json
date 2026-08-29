@@ -1,6 +1,6 @@
 {
   "name": "hyper-compress",
-  "version": "0.1.1",
+  "version": "1.0.0",
   "type": "module",
   "description": "High-fidelity, content-preserving PDF compression engine",
   "license": "AGPL-3.0-only",
@@ -66,8 +66,8 @@
     "jbig2"
   ],
   "optionalDependencies": {
-    "hyper-compress-darwin-arm64": "0.1.1",
-    "hyper-compress-linux-x64": "0.1.1",
-    "hyper-compress-win32-x64": "0.1.1"
+    "hyper-compress-darwin-arm64": "1.0.0",
+    "hyper-compress-linux-x64": "1.0.0",
+    "hyper-compress-win32-x64": "1.0.0"
   }
 }

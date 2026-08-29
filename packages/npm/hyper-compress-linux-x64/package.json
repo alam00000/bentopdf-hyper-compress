@@ -1,6 +1,6 @@
 {
   "name": "hyper-compress-linux-x64",
-  "version": "0.1.1",
+  "version": "1.0.0",
   "description": "Prebuilt Hyper Compress engine binaries for linux x64",
   "license": "AGPL-3.0-only",
   "repository": {
