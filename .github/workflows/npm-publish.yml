@@ -59,10 +59,12 @@ jobs:
             console.log(`${pkg.name} -> ${version}`);
           }
           const root = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-          for (const name of Object.keys(root.optionalDependencies ?? {})) {
+          root.optionalDependencies = {};
+          for (const name of ['hyper-compress-darwin-arm64', 'hyper-compress-linux-x64', 'hyper-compress-win32-x64']) {
             root.optionalDependencies[name] = version;
           }
           fs.writeFileSync('package.json', JSON.stringify(root, null, 2) + '\n');
+          console.log(`hyper-compress -> ${version} with platform pins ${Object.keys(root.optionalDependencies).join(', ')}`);
           EOF
       - name: build
         run: |

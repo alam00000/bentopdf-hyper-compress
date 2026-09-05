@@ -64,10 +64,5 @@
     "optimize",
     "jpegli",
     "jbig2"
-  ],
-  "optionalDependencies": {
-    "hyper-compress-darwin-arm64": "1.0.0",
-    "hyper-compress-linux-x64": "1.0.0",
-    "hyper-compress-win32-x64": "1.0.0"
-  }
+  ]
 }

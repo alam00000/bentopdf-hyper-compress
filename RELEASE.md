@@ -8,10 +8,16 @@ scripts/release.sh patch     # or minor, major, or an explicit X.Y.Z
 
 The script refuses to run unless you are on a clean, up-to-date main. It bumps
 `HPDF_VERSION` in `sdk/native/hpdf.h` (the source of truth), stamps
-`package.json`, every package under `packages/npm/`, the root
-`optionalDependencies` pins and the lockfile, runs `make check`, commits
-`chore: release vX.Y.Z`, tags, and pushes. `DRY_RUN=1 scripts/release.sh patch`
-shows what would happen without changing anything.
+`package.json`, every package under `packages/npm/` and the lockfile, runs
+`make check`, commits `chore: release vX.Y.Z`, tags, and pushes.
+`DRY_RUN=1 scripts/release.sh patch` shows what would happen without changing
+anything.
+
+Note that the root `package.json` in the repo has no `optionalDependencies`
+on the platform packages, and that is on purpose. The publish workflow adds
+them when it publishes. If they lived in the repo, the lockfile would point at
+versions that are not on npm yet (they only get published after the tag), and
+`npm ci` would break on main right after every release.
 
 CI does the rest, in order:
 

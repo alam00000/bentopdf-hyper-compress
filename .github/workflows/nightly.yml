@@ -25,7 +25,7 @@ jobs:
           gh release download --repo "$GITHUB_REPOSITORY" \
             --pattern 'hyper-compress-*-macos-arm64.tar.gz' --pattern 'SHA256SUMS' -D rel
           cd rel
-          grep 'macos-arm64' SHA256SUMS | shasum -a 256 -c -
+          grep ' hyper-compress-v[^ ]*-macos-arm64' SHA256SUMS | shasum -a 256 -c -
           tar -xzf hyper-compress-*-macos-arm64.tar.gz -C ../cli/prebuilt
           echo "skip=false" >> "$GITHUB_OUTPUT"
       - name: tools

@@ -64,9 +64,6 @@ fs.writeFileSync(
 const stamp = (p) => {
   const pkg = JSON.parse(fs.readFileSync(p, 'utf8'));
   pkg.version = version;
-  for (const name of Object.keys(pkg.optionalDependencies ?? {})) {
-    pkg.optionalDependencies[name] = version;
-  }
   fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + '\n');
   console.log(`stamped ${pkg.name} ${version}`);
 };
