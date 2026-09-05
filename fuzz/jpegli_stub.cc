@@ -1,3 +1,4 @@
+#include <cstddef>
 #include <cstdint>
 
 extern "C" {

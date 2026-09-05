@@ -13,4 +13,3 @@ docker/build-work
 bench/RESULTS.csv
 bench/MANIFEST.csv
 tests/regression/failset
-fuzz/corpus
