@@ -6261,7 +6261,7 @@ static int HyperBrotliRecodeStreams(CPDF_Document* doc,
     RetainPtr<CPDF_Dictionary> d = stream->GetMutableDict();
     if (d) {
       const ByteString type = d->GetNameFor("Type");
-      if (type == "XRef" || type == "ObjStm")
+      if (type == "XRef" || type == "ObjStm" || type == "Metadata")
         continue;
       if (d->GetNameFor("Subtype") == "Image")
         continue;
@@ -6382,7 +6382,7 @@ void HyperCoalescePageContents(CPDF_Document* doc) {
   }
 }
 
-int HyperFlateUncompressedStreams(CPDF_Document* doc, bool pdfa_mode) {
+int HyperFlateUncompressedStreams(CPDF_Document* doc) {
   if (!doc)
     return 0;
   int recompressed = 0;
@@ -6398,7 +6398,7 @@ int HyperFlateUncompressedStreams(CPDF_Document* doc, bool pdfa_mode) {
     const ByteString type = d->GetNameFor("Type");
     if (type == "XRef" || type == "ObjStm")
       continue;
-    if (pdfa_mode && type == "Metadata")
+    if (type == "Metadata")
       continue;
     auto acc =
         pdfium::MakeRetain<CPDF_StreamAcc>(pdfium::WrapRetain(obj->AsStream()));
@@ -6803,7 +6803,7 @@ HyperCompress_Execute(FPDF_DOCUMENT document, FPDF_COMPRESS_OPTIONS h) {
   HyperIccFlattener icc_pass(doc, *opts);
   icc_pass.Run();
 
-  HyperFlateUncompressedStreams(doc, (opts->pdfa_mode & 1) != 0);
+  HyperFlateUncompressedStreams(doc);
   if ((opts->pdfa_mode & 1) == 0)
     HyperBrotliRecodeStreams(doc, *opts);
 

@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { xmpPdf, countMarker } from './helpers.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..', '..');
@@ -53,4 +54,11 @@ test('the assembled wasm package imports and compresses', opts, async () => {
   );
   assert.ok(Array.isArray(result.warnings));
   assert.equal(typeof (await pkg.verifyPassword(input, 'x')), 'boolean');
+  for (const deflated of [false, true]) {
+    const xmp = await pkg.compress(xmpPdf(deflated), { preset: 'medium' });
+    assert.ok(
+      countMarker(xmp.data, 'HYPERXMPMARKER') > 0,
+      `${deflated ? 'deflated' : 'plain'} XMP must stay readable`,
+    );
+  }
 });

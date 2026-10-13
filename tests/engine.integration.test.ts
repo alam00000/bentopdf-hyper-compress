@@ -12,6 +12,7 @@ import {
   expandPdf,
   signedPdf,
   pdfaPdf,
+  xmpPdf,
   countMarker,
 } from './helpers.js';
 
@@ -121,6 +122,23 @@ test('an unreachable target reports best effort, not failure', opts, async () =>
   });
   assert.equal(result.metTarget, false);
   assert.ok(result.compressedSize > 0);
+});
+
+test('the XMP packet is written as plain text whatever its input filter', opts, async () => {
+  const runs: RunOptions[] = [
+    { preset: 'medium' },
+    { preset: 'high' },
+    { preset: 'medium', options: { brotli: true } },
+  ];
+  for (const deflated of [false, true]) {
+    for (const input of runs) {
+      const { output } = await run(xmpPdf(deflated), input);
+      assert.ok(
+        countMarker(output, 'HYPERXMPMARKER') > 0,
+        `${deflated ? 'deflated' : 'plain'} XMP with ${JSON.stringify(input)} must stay readable`,
+      );
+    }
+  }
 });
 
 test('metTarget is null when no target is requested', opts, async () => {

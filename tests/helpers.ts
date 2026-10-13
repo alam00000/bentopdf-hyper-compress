@@ -164,6 +164,45 @@ export function pdfaPdf(): Uint8Array {
   );
 }
 
+export function xmpPdf(deflated = false): Uint8Array {
+  const xmp = Buffer.from(
+    '<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>' +
+      '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF ' +
+      'xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">' +
+      '<rdf:Description rdf:about="" ' +
+      'xmlns:dc="http://purl.org/dc/elements/1.1/">' +
+      '<dc:title>HYPERXMPMARKER</dc:title></rdf:Description>' +
+      '<rdf:Description rdf:about=""/>'.repeat(40) +
+      '</rdf:RDF></x:xmpmeta><?xpacket end="w"?>',
+    'latin1',
+  );
+  const data = deflated ? deflateSync(xmp) : xmp;
+  const enc = new TextEncoder();
+  const head = enc.encode(
+    `<< /Type /Metadata /Subtype /XML${deflated ? ' /Filter /FlateDecode' : ''} ` +
+      `/Length ${data.length} >>\nstream\n`,
+  );
+  const tail = enc.encode('\nendstream');
+  const metadataObj = new Uint8Array(head.length + data.length + tail.length);
+  metadataObj.set(head, 0);
+  metadataObj.set(data, head.length);
+  metadataObj.set(tail, head.length + data.length);
+
+  const stream = 'BT /F1 24 Tf 40 700 Td (Metadata) Tj ET';
+  return buildPdf(
+    [
+      '<< /Type /Catalog /Pages 2 0 R /Metadata 6 0 R >>',
+      '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] ' +
+        '/Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
+      `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`,
+      '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+      metadataObj,
+    ],
+    1,
+  );
+}
+
 export function expandPdf(bytes: Uint8Array): Uint8Array {
   const dir = mkdtempSync(path.join(tmpdir(), 'hyper-qdf-'));
   try {

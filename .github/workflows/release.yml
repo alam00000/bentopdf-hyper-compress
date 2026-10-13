@@ -32,6 +32,7 @@ jobs:
       - name: build wasm
         run: |
           brew install emscripten
+          wasm/build-pdfium-wasm.sh
           wasm/build-wasm.sh
       - name: package
         run: |

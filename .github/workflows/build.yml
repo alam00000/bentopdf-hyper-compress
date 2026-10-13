@@ -34,6 +34,7 @@ jobs:
       - name: build wasm
         run: |
           brew install emscripten
+          wasm/build-pdfium-wasm.sh
           wasm/build-wasm.sh
           ls -la wasm/out/hyper-compress.js wasm/out/hyper-compress.wasm
 
