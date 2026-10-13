@@ -1,6 +1,6 @@
 # Getting Started
 
-Hyper Compress can be used in a few different ways, but the engine underneath is always the same. Whether you're using the CLI, Node SDK, WebAssembly build, or something else, you'll get the same presets, the same [28 options](/options), and the same result from the same settings.
+Hyper Compress can be used in a few different ways, but the engine underneath is always the same. Whether you're using the CLI, Node SDK, WebAssembly build, or something else, you'll get the same presets, the same [30 options](/options), and the same result from the same settings.
 
 Pick the way you want to use Hyper, and this guide will help you compress your first PDF.
 
@@ -96,7 +96,7 @@ Every surface uses the same four presets. Pick by what the document is for:
 | `high` | 20 | 72 | smallest output and screen reading |
 | `lossless` | off | off | no image re-encoding, pixel-identical images |
 
-A preset is just a complete options object; start from one and override any field. The [options reference](/options) lists all 28 options and exactly what each preset sets.
+A preset is just a complete options object; start from one and override any field. The [options reference](/options) lists all 30 options and exactly what each preset sets.
 
 ## Three things to know before you start
 

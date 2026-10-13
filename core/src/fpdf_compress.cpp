@@ -5480,6 +5480,16 @@ class HyperMrcEncoder {
   const CompressOptions& opts_;
 };
 
+static bool HyperWidgetIsSignature(const CPDF_Dictionary* widget) {
+  RetainPtr<const CPDF_Dictionary> node = pdfium::WrapRetain(widget);
+  for (int depth = 0; node && depth < 32; ++depth) {
+    if (node->KeyExist("FT"))
+      return node->GetNameFor("FT") == "Sig";
+    node = node->GetDictFor("Parent");
+  }
+  return false;
+}
+
 class HyperAnnotationFlatten {
  public:
   HyperAnnotationFlatten(CPDF_Document* doc,
@@ -5490,7 +5500,8 @@ class HyperAnnotationFlatten {
   void Run() {
     const uint32_t mask = opts_.discard_mask;
     if (!(mask & (HYPERC_FLATTEN_FORMS | HYPERC_FLATTEN_LINKS |
-                  HYPERC_FLATTEN_ANNOTS_KEEP_FORMS_LINKS))) {
+                  HYPERC_FLATTEN_ANNOTS_KEEP_FORMS_LINKS |
+                  HYPERC_DISCARD_SIGNATURES))) {
       return;
     }
     const int page_count = doc_->GetPageCount();
@@ -5532,6 +5543,9 @@ class HyperAnnotationFlatten {
       bool should_flatten = false;
       if (is_widget && (mask & HYPERC_FLATTEN_FORMS)) {
 
+        should_flatten = true;
+      } else if (is_widget && (mask & HYPERC_DISCARD_SIGNATURES) &&
+                 HyperWidgetIsSignature(ad.Get())) {
         should_flatten = true;
       } else if (is_link && (mask & HYPERC_FLATTEN_LINKS)) {
 
@@ -6009,7 +6023,8 @@ class HyperConvertToBitmap {
 
   void Run() {
     if (!opts_.convert_to_bitmap || !fpdf_doc_) return;
-    if (DocumentHasTextLayer()) {
+    if (opts_.convert_to_bitmap != HYPERC_CONVERT_TO_BITMAP_FORCE &&
+        DocumentHasTextLayer()) {
       fprintf(stderr, "[hyper] rasterize skipped: document has a text layer\n");
       return;
     }
@@ -6335,6 +6350,45 @@ bool HyperDocIsSigned(CPDF_Document* doc) {
       return true;
   }
   return false;
+}
+
+static void HyperStripSignatureValues(CPDF_Dictionary* field,
+                                      const ByteString& inherited_ft,
+                                      int depth) {
+  if (!field || depth > 32)
+    return;
+  const ByteString ft =
+      field->KeyExist("FT") ? field->GetNameFor("FT") : inherited_ft;
+  if (ft == "Sig") {
+    field->RemoveFor("V");
+    field->RemoveFor("SV");
+    field->RemoveFor("Lock");
+  }
+  RetainPtr<CPDF_Array> kids = field->GetMutableArrayFor("Kids");
+  if (!kids)
+    return;
+  for (size_t i = 0; i < kids->size(); ++i) {
+    RetainPtr<CPDF_Dictionary> kid = kids->GetMutableDictAt(i);
+    HyperStripSignatureValues(kid.Get(), ft, depth + 1);
+  }
+}
+
+static void HyperRemoveSignatures(CPDF_Document* doc) {
+  RetainPtr<CPDF_Dictionary> root = doc->GetMutableRoot();
+  if (!root)
+    return;
+  root->RemoveFor("Perms");
+  RetainPtr<CPDF_Dictionary> acro_form = root->GetMutableDictFor("AcroForm");
+  if (!acro_form)
+    return;
+  acro_form->RemoveFor("SigFlags");
+  RetainPtr<CPDF_Array> fields = acro_form->GetMutableArrayFor("Fields");
+  if (!fields)
+    return;
+  for (size_t i = 0; i < fields->size(); ++i) {
+    RetainPtr<CPDF_Dictionary> field = fields->GetMutableDictAt(i);
+    HyperStripSignatureValues(field.Get(), ByteString(), 0);
+  }
 }
 
 void HyperCoalescePageContents(CPDF_Document* doc) {
@@ -6776,7 +6830,9 @@ HyperCompress_Execute(FPDF_DOCUMENT document, FPDF_COMPRESS_OPTIONS h) {
   CompressOptions* opts = GetOpts(h);
   if (!opts) return 0;
 
-  if (HyperDocIsSigned(doc))
+  const bool remove_signatures =
+      (opts->discard_mask & HYPERC_DISCARD_SIGNATURES) != 0;
+  if (HyperDocIsSigned(doc) && !remove_signatures)
     return HYPERC_EXEC_SKIPPED_SIGNED;
 
   HyperCoalescePageContents(doc);
@@ -6786,6 +6842,9 @@ HyperCompress_Execute(FPDF_DOCUMENT document, FPDF_COMPRESS_OPTIONS h) {
 
   HyperAnnotationFlatten flatten(doc, document, *opts);
   flatten.Run();
+
+  if (remove_signatures)
+    HyperRemoveSignatures(doc);
 
   HyperCatalogDiscard discard(doc, *opts);
   discard.Run();

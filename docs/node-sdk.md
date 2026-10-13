@@ -55,6 +55,7 @@ interface CompressResult {
   originalSize: number;
   compressedSize: number;        // never larger than originalSize
   signed: boolean;               // input was digitally signed and returned untouched
+  signaturesRemoved: boolean;  // removeSignatures stripped signatures so the document could be compressed
   pdfa: PdfaLevel | null;        // the input's PDF/A claim, e.g. { part: 2, conformance: 'b' }
   pdfaPreserved: boolean;        // output still carries a valid PDF/A claim
   metTarget: boolean | null;     // whether targetSizeBytes was met; null when no target was set
@@ -139,7 +140,7 @@ await compress({
 });
 ```
 
-`options` is a partial override on top of the preset; anything you do not set comes from the preset. All 28 fields are in the [options reference](/options).
+`options` is a partial override on top of the preset; anything you do not set comes from the preset. All 30 fields are in the [options reference](/options).
 
 ## Errors
 

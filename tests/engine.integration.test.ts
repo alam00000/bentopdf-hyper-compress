@@ -11,6 +11,7 @@ import {
   imagePdf,
   expandPdf,
   signedPdf,
+  textOverImagePdf,
   pdfaPdf,
   xmpPdf,
   countMarker,
@@ -105,6 +106,33 @@ test('a signed document is returned byte-for-byte', opts, async () => {
   const { result, output } = await run(input, { preset: 'high' });
   assert.equal(result.signed, true);
   assert.deepEqual(output, Buffer.from(input));
+});
+
+test('removeSignatures compresses a signed document and reports it', opts, async () => {
+  let body = '';
+  for (let i = 0; i < 300; i++) {
+    body += `BT /F1 10 Tf 40 ${720 - (i % 60) * 11} Td (signed line ${i}) Tj ET\n`;
+  }
+  const { result, output } = await run(signedPdf(body), {
+    preset: 'medium',
+    options: { removeSignatures: true },
+  });
+  assert.equal(result.signed, false);
+  assert.equal(result.signaturesRemoved, true);
+  assert.ok(result.compressedSize < result.originalSize);
+  assert.equal(countMarker(expandPdf(output), '/Perms'), 0);
+  assert.ok(result.warnings.some((w) => /signatures removed/.test(w)));
+});
+
+test('rasterizeText rasterizes a page that has text', opts, async () => {
+  const low = { rasterizePages: true, rasterizeDpi: 36, rasterizeQuality: 10 };
+  const kept = await run(textOverImagePdf(), { preset: 'medium', options: low });
+  assert.ok(countMarker(expandPdf(kept.output), '/Font') > 0, 'the text layer is kept by default');
+  const forced = await run(textOverImagePdf(), {
+    preset: 'medium',
+    options: { ...low, rasterizeText: true },
+  });
+  assert.equal(countMarker(expandPdf(forced.output), '/Font'), 0, 'rasterizeText replaces text with an image');
 });
 
 test('target size is met on an image-heavy document', opts, async () => {

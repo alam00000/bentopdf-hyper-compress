@@ -91,6 +91,7 @@ export interface CompressResult {
   originalSize: number;
   compressedSize: number;
   signed: boolean;
+  signaturesRemoved: boolean;
   pdfa: PdfaLevel | null;
   pdfaPreserved: boolean;
   metTarget: boolean | null;
@@ -144,7 +145,7 @@ function runDriver(
   outPath: string,
   tokens: string[],
   limits?: StageLimits,
-): Promise<{ ok: boolean; signed: boolean; note: string | null }> {
+): Promise<{ ok: boolean; signed: boolean; signaturesRemoved: boolean; note: string | null }> {
   return new Promise((resolve) => {
     const child = spawn(driverPath(), [safeArgPath(inPath), safeArgPath(outPath), ...tokens], {
       stdio: ['ignore', 'ignore', 'pipe'],
@@ -154,11 +155,12 @@ function runDriver(
     child.stderr?.on('data', (chunk: Buffer) => {
       stderr += chunk.toString();
     });
-    child.on('error', () => resolve({ ok: false, signed: false, note: null }));
+    child.on('error', () => resolve({ ok: false, signed: false, signaturesRemoved: false, note: null }));
     child.on('close', (code) => {
       const signed = /SIGNED_SKIP/.test(stderr);
+      const signaturesRemoved = /SIGNATURES_REMOVED/.test(stderr);
       const note = stderr.match(/\[hyper\] (rasterize skipped:[^\r\n]*)/)?.[1] ?? null;
-      resolve({ ok: code === 0, signed, note });
+      resolve({ ok: code === 0, signed, signaturesRemoved, note });
     });
   });
 }
@@ -301,7 +303,7 @@ export async function compress(input: CompressInput): Promise<CompressResult> {
       attemptOptions: HyperCompressOptions,
       drvPath: string,
       packPath: string,
-    ): Promise<{ ok: boolean; signed: boolean; candidate: string | null }> => {
+    ): Promise<{ ok: boolean; signed: boolean; signaturesRemoved: boolean; candidate: string | null }> => {
       const attemptTokens = buildHyperTokens(attemptOptions);
       const r = await runDriver(workIn, drvPath, attemptTokens, limits);
       if (!r.ok || r.signed) return { ...r, candidate: null };
@@ -316,7 +318,7 @@ export async function compress(input: CompressInput): Promise<CompressResult> {
       ? Math.floor(input.targetSizeBytes)
       : null;
 
-    const { ok, signed, note } = await runDriver(workIn, drvOut, tokens, limits);
+    const { ok, signed, signaturesRemoved, note } = await runDriver(workIn, drvOut, tokens, limits);
     if (note) warnings.push(note);
     throwIfAborted(effectiveSignal);
 
@@ -328,6 +330,7 @@ export async function compress(input: CompressInput): Promise<CompressResult> {
         originalSize,
         compressedSize: signedSize,
         signed: true,
+        signaturesRemoved: false,
         pdfa: claimed,
         pdfaPreserved: Boolean(claimed),
         metTarget: target != null ? signedSize <= target : null,
@@ -410,10 +413,12 @@ export async function compress(input: CompressInput): Promise<CompressResult> {
 
     throwIfAborted(effectiveSignal);
 
+    let usedEngineOutput = false;
     if (packed) {
       const packedSize = await statSize(packed);
       if (packedSize > 0 && packedSize < baselineSize) {
         await fs.promises.copyFile(packed, finalPath);
+        usedEngineOutput = true;
       } else {
         await fs.promises.copyFile(fallbackBase, finalPath);
       }
@@ -433,12 +438,17 @@ export async function compress(input: CompressInput): Promise<CompressResult> {
     if (target != null && metTarget === false) {
       warnings.push(targetMissWarning(finalSize, target));
     }
+    const removed = signaturesRemoved && usedEngineOutput;
+    if (removed) {
+      warnings.push('digital signatures removed so the document could be compressed');
+    }
 
     return {
       outputPath: finalPath,
       originalSize,
       compressedSize: finalSize,
       signed: false,
+      signaturesRemoved: removed,
       pdfa: claimed,
       pdfaPreserved: preserving,
       metTarget,

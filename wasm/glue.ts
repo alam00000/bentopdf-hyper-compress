@@ -56,6 +56,7 @@ export interface HyperWasmResult {
   originalSize: number;
   compressedSize: number;
   signed: boolean;
+  signaturesRemoved: boolean;
   pdfa: PdfaLevel | null;
   pdfaOutcome: 'none' | 'preserved' | 'claim-withdrawn';
   metTarget: boolean | null;
@@ -218,7 +219,7 @@ export function runEngine(
   input: Uint8Array,
   tokens: string[],
   password: string | null,
-): { data: Uint8Array | null; signed: boolean } {
+): { data: Uint8Array | null; signed: boolean; signaturesRemoved: boolean } {
   const { ids, vals } = tokensToPairs(tokens);
   const inPtr = copyIn(mod, input);
   const pwPtr = copyCString(mod, password);
@@ -228,7 +229,7 @@ export function runEngine(
   const signedPtr = mod._malloc(4);
   try {
     if (!inPtr || !idsPtr || !valsPtr || !sizePtr || !signedPtr) {
-      return { data: null, signed: false };
+      return { data: null, signed: false, signaturesRemoved: false };
     }
     const outPtr = mod._hyper_compress_buffer(
       inPtr,
@@ -240,8 +241,12 @@ export function runEngine(
       sizePtr,
       signedPtr,
     );
-    const signed = readHeap32(mod, signedPtr) !== 0;
-    return { data: takeResult(mod, outPtr, sizePtr), signed };
+    const signedState = readHeap32(mod, signedPtr);
+    return {
+      data: takeResult(mod, outPtr, sizePtr),
+      signed: signedState === 1,
+      signaturesRemoved: signedState === 2,
+    };
   } finally {
     mod._free(inPtr);
     if (pwPtr) mod._free(pwPtr);
@@ -298,7 +303,8 @@ export function compressBuffer(
   const tokens = buildHyperTokens(resolved);
 
   const enginePassword = password && workIn !== input ? null : password;
-  const { data: engineOut, signed } = runEngine(mod, workIn, tokens, enginePassword);
+  const { data: engineOut, signed, signaturesRemoved } =
+    runEngine(mod, workIn, tokens, enginePassword);
 
   const finish = (data: Uint8Array): HyperWasmResult => {
     let out = data;
@@ -322,11 +328,16 @@ export function compressBuffer(
     if (metTarget === false && target != null) {
       warnings.push(targetMissWarning(out.length, target));
     }
+    const removed = signaturesRemoved && data !== fallbackBase;
+    if (removed) {
+      warnings.push('digital signatures removed so the document could be compressed');
+    }
     return {
       data: out,
       originalSize,
       compressedSize: out.length,
       signed,
+      signaturesRemoved: removed,
       pdfa: claimed,
       pdfaOutcome: outcome,
       metTarget,
@@ -340,6 +351,7 @@ export function compressBuffer(
       originalSize,
       compressedSize: fallbackBase.length,
       signed: true,
+      signaturesRemoved: false,
       pdfa: claimed,
       pdfaOutcome: claimed ? 'preserved' : 'none',
       metTarget: target != null ? fallbackBase.length <= target : null,

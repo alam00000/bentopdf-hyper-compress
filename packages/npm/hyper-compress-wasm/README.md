@@ -49,6 +49,7 @@ interface HyperWasmResult {
   originalSize: number;
   compressedSize: number;
   signed: boolean;           // true when the input was digitally signed and returned untouched
+  signaturesRemoved: boolean;  // removeSignatures stripped signatures so the document could be compressed
   pdfa: PdfaLevel | null;    // the input's PDF/A claim, e.g. { part: 2, conformance: 'b' }
   pdfaOutcome: 'none' | 'preserved' | 'claim-withdrawn';
   metTarget: boolean | null; // whether targetSizeBytes was met; null when no target was set

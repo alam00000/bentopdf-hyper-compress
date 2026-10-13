@@ -39,6 +39,7 @@ interface HyperWasmResult {
   originalSize: number;
   compressedSize: number;
   signed: boolean;               // input was digitally signed and returned untouched
+  signaturesRemoved: boolean;  // removeSignatures stripped signatures so the document could be compressed
   pdfa: PdfaLevel | null;        // the input's PDF/A claim
   pdfaOutcome: 'none' | 'preserved' | 'claim-withdrawn';
   metTarget: boolean | null;     // null when no target was set
@@ -46,7 +47,7 @@ interface HyperWasmResult {
 }
 ```
 
-The [guarantees](/guarantees) are identical to the native package: output never larger than input, signed documents untouched, PDF/A never left lying, and a size target searched to the engine's floor with the smallest achievable file returned on a miss. The [options](/options) are the same 28 fields. Errors are thrown as `HyperError` with `code` `decrypt_failed` (wrong or missing password) or `engine_error` (anything else).
+The [guarantees](/guarantees) are identical to the native package: output never larger than input, signed documents untouched, PDF/A never left lying, and a size target searched to the engine's floor with the smallest achievable file returned on a miss. The [options](/options) are the same 30 fields. Errors are thrown as `HyperError` with `code` `decrypt_failed` (wrong or missing password) or `engine_error` (anything else).
 
 ## verifyPassword(input, password)
 

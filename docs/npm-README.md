@@ -65,6 +65,7 @@ interface CompressResult {
   originalSize: number;     // input size in bytes
   compressedSize: number;   // output size in bytes, never larger than originalSize
   signed: boolean;          // true when the input was digitally signed and returned untouched
+  signaturesRemoved: boolean; // true when removeSignatures stripped signatures so the document could be compressed
   pdfa: PdfaLevel | null;   // the input's PDF/A claim, e.g. { part: 2, conformance: 'b' }
   pdfaPreserved: boolean;   // true when the output still carries a valid PDF/A claim
   metTarget: boolean | null; // whether targetSizeBytes was met; null when no target was set
@@ -80,9 +81,9 @@ document conformant. An empty array means every requested option was applied.
 Guarantees enforced by the engine, not left to the caller:
 
 - The output is never larger than the input. When compression does not help, you get the original bytes.
-- A digitally signed document is returned byte-for-byte untouched, because any rewrite would invalidate the signature.
+- A digitally signed document is returned byte-for-byte untouched, because any rewrite would invalidate the signature. `removeSignatures` opts out: signatures are stripped and the document is compressed.
 - A PDF/A document either keeps its conformance (with `preserveConformance`) or has the claim removed. It is never left claiming a standard it no longer meets.
-- Page rasterization is refused when any page contains text, including an invisible OCR layer, so it cannot destroy searchable text. The refusal is reported in `warnings`.
+- Page rasterization is refused when any page contains text, including an invisible OCR layer, so it cannot destroy searchable text. The refusal is reported in `warnings`. `rasterizeText` opts out.
 - With `targetSizeBytes`, the search pushes to quality 5 and 36 dpi to reach your target. If it is still unreachable, you get the smallest file the engine could produce, `metTarget: false`, and a warning saying how small that was.
 
 Errors are thrown as `HyperError` with a typed `code`:
@@ -166,6 +167,7 @@ For image-only documents such as scans and print-to-PDF output. The engine refus
 | `rasterizePages` | boolean | false | Replace each page with a single rendered image. Shrinks vector-heavy pages dramatically. |
 | `rasterizeDpi` | number 36 to 600 | 150 | Render resolution. Higher keeps more detail. |
 | `rasterizeQuality` | number 1 to 100 | 50 | JPEG quality for the rasterized pages. |
+| `rasterizeText` | boolean | false | Rasterize pages even when the document has a text layer. Text stops being selectable and searchable, and links stop working. Needs `rasterizePages`. |
 
 ### Fonts
 
@@ -183,6 +185,7 @@ For image-only documents such as scans and print-to-PDF output. The engine refus
 | `removeAnnots` | boolean | false | Remove comments and other annotations. |
 | `flattenForms` | boolean | false | Flatten form fields into page content. Form fields stop being fillable. |
 | `flattenLinks` | boolean | false | Flatten link annotations. Links stop being clickable. |
+| `removeSignatures` | boolean | false | Remove digital signatures so a signed document can be compressed instead of returned untouched. The visible signature stays on the page, but the file is no longer signed and can be signed again. |
 | `removeStructTree` | boolean | false | Drop the structure tree. Removes tagging, which screen readers rely on. |
 | `removeThreads` | boolean | false | Remove article threads. |
 

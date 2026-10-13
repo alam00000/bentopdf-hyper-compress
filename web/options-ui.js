@@ -18,6 +18,8 @@ export const SECTIONS = [
         help: 'Higher keeps more detail.' },
       { key: 'rasterizeQuality', type: 'range', label: 'Rasterize quality', min: 1, max: 100,
         help: 'JPEG quality for the rasterized pages.' },
+      { key: 'rasterizeText', type: 'bool', label: 'Rasterize pages with text too',
+        help: 'Overrides the text-layer guard. Text stops being selectable and links stop working.' },
     ],
   },
   {
@@ -57,6 +59,8 @@ export const SECTIONS = [
         help: 'Form fields stop being fillable.' },
       { key: 'flattenLinks', type: 'bool', label: 'Flatten link annotations',
         help: 'Links stop being clickable.' },
+      { key: 'removeSignatures', type: 'bool', label: 'Remove digital signatures',
+        help: 'Signed PDFs are compressed instead of returned untouched. The visible signature stays, but the file is no longer signed.' },
     ],
   },
   {

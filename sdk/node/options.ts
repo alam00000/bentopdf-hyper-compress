@@ -15,10 +15,12 @@ export interface HyperCompressOptions {
   rasterizePages: boolean;
   rasterizeDpi: number;
   rasterizeQuality: number;
+  rasterizeText: boolean;
   mergeFonts: boolean;
   removeAnnots: boolean;
   flattenForms: boolean;
   flattenLinks: boolean;
+  removeSignatures: boolean;
   removeThumbnails: boolean;
   removeAppData: boolean;
   removeStructTree: boolean;
@@ -54,10 +56,12 @@ export function normalizeHyperOptions(raw: unknown): HyperCompressOptions {
     rasterizePages: bool(a.rasterizePages, false),
     rasterizeDpi: clamp(a.rasterizeDpi, 36, 600, 150),
     rasterizeQuality: clamp(a.rasterizeQuality, 1, 100, 50),
+    rasterizeText: bool(a.rasterizeText, false),
     mergeFonts: bool(a.mergeFonts, false),
     removeAnnots: bool(a.removeAnnots, false),
     flattenForms: bool(a.flattenForms, false),
     flattenLinks: bool(a.flattenLinks, false),
+    removeSignatures: bool(a.removeSignatures, false),
     removeThumbnails: bool(a.removeThumbnails, false),
     removeAppData: bool(a.removeAppData, false),
     removeStructTree: bool(a.removeStructTree, false),
@@ -100,6 +104,7 @@ export function buildHyperTokens(o: HyperCompressOptions): string[] {
   if (o.removeAnnots) mask |= 0x40000;
   if (o.flattenForms) mask |= 0x100000;
   if (o.flattenLinks) mask |= 0x200000;
+  if (o.removeSignatures) mask |= 0x400000;
   if (o.removeThumbnails) mask |= 0x2;
   if (o.removeAppData) mask |= 0x80 | 0x2000;
   if (o.removeStructTree) mask |= 0x1;
@@ -108,7 +113,7 @@ export function buildHyperTokens(o: HyperCompressOptions): string[] {
   if (o.removeOutputIntents) mask |= 0x4000;
   if (mask) tokens.push(`20=${mask}`);
   if (o.rasterizePages) {
-    tokens.push('60=1', `61=${o.rasterizeDpi}`, `62=${o.rasterizeQuality}`);
+    tokens.push(`60=${o.rasterizeText ? 2 : 1}`, `61=${o.rasterizeDpi}`, `62=${o.rasterizeQuality}`);
   }
   if (o.preserveConformance) tokens.push('64=3');
   if (o.brotli && !o.preserveConformance) tokens.push('65=1', '66=11');
@@ -185,6 +190,10 @@ export const HYPER_OPTION_DOCS: Record<keyof HyperCompressOptions, HyperOptionDo
     group: 'Rasterization', type: 'number', min: 1, max: 100, default: 50,
     description: 'JPEG quality for the rasterized pages.',
   },
+  rasterizeText: {
+    group: 'Rasterization', type: 'boolean', default: false,
+    description: 'Rasterize pages even when the document has a text layer. Text stops being selectable and searchable, and links stop working. Needs rasterizePages.',
+  },
   subsetFonts: {
     group: 'Fonts', type: 'boolean', default: false,
     description: 'Keep only the glyphs the document uses. Lossless by definition.',
@@ -212,6 +221,10 @@ export const HYPER_OPTION_DOCS: Record<keyof HyperCompressOptions, HyperOptionDo
   flattenLinks: {
     group: 'Structure and interactivity', type: 'boolean', default: false,
     description: 'Flatten link annotations. Links stop being clickable.',
+  },
+  removeSignatures: {
+    group: 'Structure and interactivity', type: 'boolean', default: false,
+    description: 'Remove digital signatures so a signed document can be compressed instead of returned untouched. The visible signature stays on the page, but the file is no longer signed and can be signed again.',
   },
   removeStructTree: {
     group: 'Structure and interactivity', type: 'boolean', default: false,

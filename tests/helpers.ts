@@ -30,7 +30,7 @@ function buildPdf(objects: Array<string | Uint8Array>, root: number): Uint8Array
   objects.forEach((obj, i) => {
     offsets.push(length);
     push(`${i + 1} 0 obj\n`);
-    if (typeof obj === 'string') push(obj);
+    push(obj);
     push('\nendobj\n');
   });
 
@@ -87,7 +87,7 @@ export function richTextPdf(lines = 400): Uint8Array {
   );
 }
 
-export function imagePdf(width = 500, height = 400): Uint8Array {
+function imageObject(width: number, height: number): Uint8Array {
   const raw = Buffer.alloc(width * height * 3);
   let seed = 1;
   for (let i = 0; i < raw.length; i += 3) {
@@ -109,7 +109,10 @@ export function imagePdf(width = 500, height = 400): Uint8Array {
   imageObj.set(head, 0);
   imageObj.set(img, head.length);
   imageObj.set(tail, head.length + img.length);
+  return imageObj;
+}
 
+export function imagePdf(width = 500, height = 400): Uint8Array {
   const content = 'q 560 0 0 720 26 36 cm /Im0 Do Q';
   return buildPdf(
     [
@@ -118,14 +121,30 @@ export function imagePdf(width = 500, height = 400): Uint8Array {
       '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] ' +
         '/Contents 4 0 R /Resources << /XObject << /Im0 5 0 R >> >> >>',
       `<< /Length ${content.length} >>\nstream\n${content}\nendstream`,
-      imageObj,
+      imageObject(width, height),
     ],
     1,
   );
 }
 
-export function signedPdf(): Uint8Array {
-  const stream = 'BT /F1 24 Tf 40 700 Td (Signed) Tj ET';
+export function textOverImagePdf(): Uint8Array {
+  const content = 'q 560 0 0 720 26 36 cm /Im0 Do Q BT /F1 24 Tf 40 700 Td (Scanned text) Tj ET';
+  return buildPdf(
+    [
+      '<< /Type /Catalog /Pages 2 0 R >>',
+      '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] ' +
+        '/Contents 4 0 R /Resources << /XObject << /Im0 5 0 R >> ' +
+        '/Font << /F1 6 0 R >> >> >>',
+      `<< /Length ${content.length} >>\nstream\n${content}\nendstream`,
+      imageObject(500, 400),
+      '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    ],
+    1,
+  );
+}
+
+export function signedPdf(stream = 'BT /F1 24 Tf 40 700 Td (Signed) Tj ET'): Uint8Array {
   return buildPdf(
     [
       '<< /Type /Catalog /Pages 2 0 R /Perms << /DocMDP 6 0 R >> >>',
@@ -188,7 +207,10 @@ export function xmpPdf(deflated = false): Uint8Array {
   metadataObj.set(data, head.length);
   metadataObj.set(tail, head.length + data.length);
 
-  const stream = 'BT /F1 24 Tf 40 700 Td (Metadata) Tj ET';
+  let stream = '';
+  for (let i = 0; i < 200; i++) {
+    stream += `BT /F1 10 Tf 40 ${720 - (i % 60) * 11} Td (metadata line ${i}) Tj ET\n`;
+  }
   return buildPdf(
     [
       '<< /Type /Catalog /Pages 2 0 R /Metadata 6 0 R >>',

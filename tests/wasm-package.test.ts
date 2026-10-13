@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { xmpPdf, countMarker } from './helpers.js';
+import { xmpPdf, signedPdf, countMarker } from './helpers.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..', '..');
@@ -32,10 +32,15 @@ test('the assembled wasm package imports and compresses', opts, async () => {
     assert.ok(existsSync(path.join(PKG, f)), `package is missing ${f}`);
   }
   interface PackageSurface {
-    compress(input: Uint8Array, opts?: { preset?: string }): Promise<{
+    compress(
+      input: Uint8Array,
+      opts?: { preset?: string; options?: Record<string, unknown> },
+    ): Promise<{
       originalSize: number;
       compressedSize: number;
       data: Uint8Array;
+      signed: boolean;
+      signaturesRemoved: boolean;
       warnings: string[];
     }>;
     verifyPassword(input: Uint8Array, password: string): Promise<boolean>;
@@ -61,4 +66,18 @@ test('the assembled wasm package imports and compresses', opts, async () => {
       `${deflated ? 'deflated' : 'plain'} XMP must stay readable`,
     );
   }
+  let body = '';
+  for (let i = 0; i < 300; i++) {
+    body += `BT /F1 10 Tf 40 ${720 - (i % 60) * 11} Td (signed line ${i}) Tj ET\n`;
+  }
+  const kept = await pkg.compress(signedPdf(body), { preset: 'medium' });
+  assert.equal(kept.signed, true);
+  assert.equal(kept.signaturesRemoved, false);
+  const removed = await pkg.compress(signedPdf(body), {
+    preset: 'medium',
+    options: { removeSignatures: true },
+  });
+  assert.equal(removed.signed, false);
+  assert.equal(removed.signaturesRemoved, true);
+  assert.ok(removed.compressedSize < removed.originalSize);
 });

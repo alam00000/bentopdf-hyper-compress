@@ -40,6 +40,15 @@ jobs:
           wasm/build-pdfium-wasm.sh
           wasm/build-wasm.sh
           ls -la wasm/out/hyper-compress.js wasm/out/hyper-compress.wasm
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos-arm64-build
+          path: |
+            wasm/out/hyper-compress.js
+            wasm/out/hyper-compress.wasm
+            cli/prebuilt/hpdf-worker
+            cli/prebuilt/hpdf-render
+            cli/prebuilt/qpdf
 
   linux-x64:
     runs-on: ubuntu-24.04

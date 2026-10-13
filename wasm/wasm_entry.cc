@@ -185,6 +185,7 @@ unsigned char* hyper_compress_buffer(const unsigned char* in,
     HyperCompress_SetOption(opts, opt_ids[i], opt_vals[i]);
   }
 
+  const bool was_signed = HyperCompress_DocIsSigned(doc) != 0;
   int rc = HyperCompress_Execute(doc, opts);
   bool signed_doc = (rc == HYPERC_EXEC_SKIPPED_SIGNED) ||
                     (HyperCompress_DocIsSigned(doc) != 0);
@@ -210,7 +211,7 @@ unsigned char* hyper_compress_buffer(const unsigned char* in,
     return nullptr;
   }
   if (out_signed) {
-    *out_signed = signed_doc ? 1 : 0;
+    *out_signed = signed_doc ? 1 : (was_signed ? 2 : 0);
   }
   *out_size = static_cast<unsigned long>(w.buf.size);
   return w.buf.data;

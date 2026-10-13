@@ -14,6 +14,8 @@ A signed PDF can't be changed without breaking its signature. So Hyper doesn't t
 
 If it finds a digital signature, it returns the exact original file and tells you why it wasn't compressed and the result reports `signed: true` so your code can tell why nothing shrank.
 
+If you would rather have a smaller file than a signed one, set `removeSignatures`. Hyper then strips the signatures, keeps the visible signature on the page, compresses the document, and reports `signaturesRemoved: true` with a warning. The output is no longer signed and can be signed again.
+
 ## PDF/A stays compliant or stops claiming it is
 
 Hyper will never leave a PDF claiming to meet the PDF/A standard when it no longer does.
@@ -23,6 +25,8 @@ With `preserveConformance` enabled, anything that could break compliance is auto
 ## Rasterization cannot destroy text
 
 `rasterizePages` replaces pages with rendered images, which is dramatic for scans but destructive for anything with real text. The engine walks every page's content, including text inside form XObjects and invisible OCR layers, and refuses to rasterize when any text exists. The refusal is reported in the result's `warnings` rather than silently ignored.
+
+`rasterizeText` turns that guard off for callers who want every page as an image anyway. Text then stops being selectable and searchable, and links stop working.
 
 
 ## A size target gets Hyper's best effort

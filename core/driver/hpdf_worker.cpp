@@ -27,6 +27,7 @@ int main(int argc, char** argv) {
       HyperCompress_SetOption(opts, o, v);
     }
   }
+  const bool was_signed = HyperCompress_DocIsSigned(doc) != 0;
   int rc = HyperCompress_Execute(doc, opts);
 
   bool signed_doc =
@@ -34,6 +35,8 @@ int main(int argc, char** argv) {
   int save_flags = signed_doc ? FPDF_INCREMENTAL : FPDF_NO_INCREMENTAL;
   if (signed_doc)
     fprintf(stderr, "SIGNED_SKIP: signed document, saving INCREMENTAL\n");
+  else if (was_signed)
+    fprintf(stderr, "SIGNATURES_REMOVED: digital signatures removed\n");
 
   g_out = fopen(argv[2], "wb");
   if (!g_out) { fprintf(stderr, "cannot open out\n"); return 4; }

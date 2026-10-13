@@ -12,6 +12,24 @@ test('presets normalize without brotli and stay stable', () => {
   }
 });
 
+test('rasterizeText forces the rasterize pass and removeSignatures sets its discard bit', () => {
+  const base = normalizeHyperOptions(HYPER_PRESETS.medium);
+  const mask = (o: typeof base): number =>
+    Number(buildHyperTokens(o).find((t) => t.startsWith('20='))?.slice(3) ?? 0);
+  assert.ok(buildHyperTokens({ ...base, rasterizePages: true }).includes('60=1'));
+  assert.ok(
+    buildHyperTokens({ ...base, rasterizePages: true, rasterizeText: true }).includes('60=2'),
+  );
+  assert.ok(!buildHyperTokens({ ...base, rasterizeText: true }).some((t) => t.startsWith('60=')));
+  assert.equal(mask({ ...base, removeSignatures: true }) & 0x400000, 0x400000);
+  assert.equal(mask(base) & 0x400000, 0);
+  for (const name of ['low', 'medium', 'high', 'lossless'] as const) {
+    const o = normalizeHyperOptions(HYPER_PRESETS[name]);
+    assert.equal(o.rasterizeText, false, `${name} must not force rasterizing`);
+    assert.equal(o.removeSignatures, false, `${name} must not remove signatures`);
+  }
+});
+
 test('brotli emits codec + quality tokens', () => {
   const o = normalizeHyperOptions({ ...HYPER_PRESETS.lossless, brotli: true });
   const tokens = buildHyperTokens(o);
