@@ -1,6 +1,6 @@
 {
   "name": "hyper-compress",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "description": "High-fidelity, content-preserving PDF compression engine",
   "license": "AGPL-3.0-only",
