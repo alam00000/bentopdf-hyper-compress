@@ -31,7 +31,10 @@ jobs:
         run: scripts/harden.sh
       - name: build wasm
         run: |
-          brew install emscripten
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$HOME/emsdk"
+          "$HOME/emsdk/emsdk" install 4.0.22
+          "$HOME/emsdk/emsdk" activate 4.0.22
+          source "$HOME/emsdk/emsdk_env.sh"
           wasm/build-pdfium-wasm.sh
           wasm/build-wasm.sh
       - name: package

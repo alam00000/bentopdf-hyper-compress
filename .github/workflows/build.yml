@@ -33,7 +33,10 @@ jobs:
           echo "worker compressed a real PDF: $(stat -f%z tests/regression/failset/govdocs001-0142b23c0caa.pdf) -> $(stat -f%z /tmp/out.pdf) bytes"
       - name: build wasm
         run: |
-          brew install emscripten
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$HOME/emsdk"
+          "$HOME/emsdk/emsdk" install 4.0.22
+          "$HOME/emsdk/emsdk" activate 4.0.22
+          source "$HOME/emsdk/emsdk_env.sh"
           wasm/build-pdfium-wasm.sh
           wasm/build-wasm.sh
           ls -la wasm/out/hyper-compress.js wasm/out/hyper-compress.wasm
