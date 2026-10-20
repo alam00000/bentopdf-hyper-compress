@@ -13,15 +13,49 @@ const PKG = path.join(ROOT, 'packages', 'npm', 'hyper-compress-wasm');
 const FIXTURE = path.join(
   ROOT, 'tests', 'regression', 'failset', 'govdocs001-0142b23c0caa.pdf',
 );
+const LATIN1_PASSWORD_FIXTURES = ['40', '128'].map((bits) =>
+  path.join(ROOT, 'tests', 'fixtures', `latin1-password-${bits}.pdf`),
+);
+
+interface PackageSurface {
+  compress(
+    input: Uint8Array,
+    opts?: {
+      preset?: string;
+      options?: Record<string, unknown>;
+      password?: string;
+    },
+  ): Promise<{
+    originalSize: number;
+    compressedSize: number;
+    data: Uint8Array;
+    signed: boolean;
+    signaturesRemoved: boolean;
+    warnings: string[];
+  }>;
+  verifyPassword(input: Uint8Array, password: string): Promise<boolean>;
+}
+
+let packaged: Promise<PackageSurface> | null = null;
+
+function loadPackage(): Promise<PackageSurface> {
+  packaged ??= (async () => {
+    execFileSync('bash', [path.join(ROOT, 'scripts', 'pack-wasm-npm.sh')], {
+      stdio: 'pipe',
+    });
+    return (await import(
+      pathToFileURL(path.join(PKG, 'index.js')).href
+    )) as PackageSurface;
+  })();
+  return packaged;
+}
 
 const opts = {
   skip: existsSync(WASM_MODULE) ? false : 'wasm/out not built',
 };
 
 test('the assembled wasm package imports and compresses', opts, async () => {
-  execFileSync('bash', [path.join(ROOT, 'scripts', 'pack-wasm-npm.sh')], {
-    stdio: 'pipe',
-  });
+  const pkg = await loadPackage();
   for (const f of [
     'index.js', 'index.d.ts', 'LICENSE', 'README.md', 'package.json',
     'engine/hyper-compress.js', 'engine/hyper-compress.wasm',
@@ -31,23 +65,6 @@ test('the assembled wasm package imports and compresses', opts, async () => {
   ]) {
     assert.ok(existsSync(path.join(PKG, f)), `package is missing ${f}`);
   }
-  interface PackageSurface {
-    compress(
-      input: Uint8Array,
-      opts?: { preset?: string; options?: Record<string, unknown> },
-    ): Promise<{
-      originalSize: number;
-      compressedSize: number;
-      data: Uint8Array;
-      signed: boolean;
-      signaturesRemoved: boolean;
-      warnings: string[];
-    }>;
-    verifyPassword(input: Uint8Array, password: string): Promise<boolean>;
-  }
-  const pkg = (await import(
-    pathToFileURL(path.join(PKG, 'index.js')).href
-  )) as PackageSurface;
   const input = new Uint8Array(readFileSync(FIXTURE));
   const result = await pkg.compress(input, { preset: 'medium' });
   assert.ok(result.compressedSize > 0);
@@ -80,4 +97,20 @@ test('the assembled wasm package imports and compresses', opts, async () => {
   assert.equal(removed.signed, false);
   assert.equal(removed.signaturesRemoved, true);
   assert.ok(removed.compressedSize < removed.originalSize);
+});
+
+test('unlocks RC4 and AES-128 files whose password has non-ASCII characters', opts, async () => {
+  const pkg = await loadPackage();
+  for (const fixture of LATIN1_PASSWORD_FIXTURES) {
+    const locked = new Uint8Array(readFileSync(fixture));
+    const name = path.basename(fixture);
+    assert.equal(await pkg.verifyPassword(locked, 'pässwört'), true, name);
+    assert.equal(await pkg.verifyPassword(locked, 'passwort'), false, name);
+    assert.equal(await pkg.verifyPassword(locked, ''), false, name);
+    const unlocked = await pkg.compress(locked, {
+      preset: 'medium',
+      password: 'pässwört',
+    });
+    assert.equal(countMarker(unlocked.data, '/Encrypt'), 0, name);
+  }
 });

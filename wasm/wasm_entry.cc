@@ -6,6 +6,7 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 #include "public/fpdfview.h"
 #include "public/fpdf_save.h"
@@ -15,6 +16,7 @@
 #include <qpdf/Constants.h>
 #include <qpdf/Pl_Flate.hh>
 #include <qpdf/QPDF.hh>
+#include <qpdf/QPDFExc.hh>
 #include <qpdf/QPDFObjectHandle.hh>
 #include <qpdf/QPDFWriter.hh>
 #include <qpdf/QUtil.hh>
@@ -119,6 +121,28 @@ unsigned char* CopyOut(const unsigned char* src, size_t len,
   return out;
 }
 
+std::shared_ptr<QPDF> OpenQpdf(const unsigned char* in, unsigned long in_size,
+                               const char* password) {
+  const std::vector<std::string> candidates =
+      (password && *password) ? QUtil::possible_repaired_encodings(password)
+                              : std::vector<std::string>{std::string()};
+  for (size_t i = 0;; ++i) {
+    std::shared_ptr<QPDF> pdf = QPDF::create();
+    pdf->setSuppressWarnings(true);
+    try {
+      pdf->processMemoryFile(
+          "in.pdf", reinterpret_cast<const char*>(in),
+          static_cast<size_t>(in_size),
+          candidates[i].empty() ? nullptr : candidates[i].c_str());
+      return pdf;
+    } catch (const QPDFExc& e) {
+      if (e.getErrorCode() != qpdf_e_password || i + 1 == candidates.size()) {
+        throw;
+      }
+    }
+  }
+}
+
 template <typename Mutate, typename Configure>
 unsigned char* QpdfRewrite(const unsigned char* in, unsigned long in_size,
                            const char* password, unsigned long* out_size,
@@ -126,11 +150,7 @@ unsigned char* QpdfRewrite(const unsigned char* in, unsigned long in_size,
   try {
     LastError().clear();
     EnsureRandomProvider();
-    std::shared_ptr<QPDF> pdf = QPDF::create();
-    pdf->setSuppressWarnings(true);
-    pdf->processMemoryFile("in.pdf", reinterpret_cast<const char*>(in),
-                           static_cast<size_t>(in_size),
-                           (password && *password) ? password : nullptr);
+    std::shared_ptr<QPDF> pdf = OpenQpdf(in, in_size, password);
 
     mutate(*pdf);
 
@@ -263,11 +283,7 @@ unsigned char* hyper_get_xmp(const unsigned char* in, unsigned long in_size,
   try {
     LastError().clear();
     EnsureRandomProvider();
-    std::shared_ptr<QPDF> pdf = QPDF::create();
-    pdf->setSuppressWarnings(true);
-    pdf->processMemoryFile("in.pdf", reinterpret_cast<const char*>(in),
-                           static_cast<size_t>(in_size),
-                           (password && *password) ? password : nullptr);
+    std::shared_ptr<QPDF> pdf = OpenQpdf(in, in_size, password);
 
     QPDFObjectHandle meta = pdf->getRoot().getKey("/Metadata");
     if (!meta.isStream()) {
