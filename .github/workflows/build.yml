@@ -171,6 +171,12 @@ jobs:
       - uses: actions/checkout@v7
       - name: build image
         run: docker build -f docker/Dockerfile -t hyper-compress:test .
+      - name: verify native engine starts
+        run: |
+          for bin in hpdf-worker hpdf-render; do
+            docker run --rm --entrypoint "/engine/cli/prebuilt/$bin" hyper-compress:test > "/tmp/$bin.txt" 2>&1 || true
+            grep -q '^usage:' "/tmp/$bin.txt" || { cat "/tmp/$bin.txt"; exit 1; }
+          done
       - name: verify serve mode
         run: |
           docker run -d --name hc -p 8080:8080 hyper-compress:test

@@ -26,9 +26,12 @@ COPY server server
 COPY tests/cli.test.ts tests/engine.integration.test.ts tests/errors.test.ts tests/helpers.ts tests/options.test.ts tests/pdfa.test.ts tests/
 RUN npm ci --no-audit --no-fund && npm run build && npm prune --omit=dev
 
-FROM node:22-slim
-RUN apt-get update && apt-get install -y --no-install-recommends qpdf \
-    && rm -rf /var/lib/apt/lists/*
+FROM node:22-trixie-slim
+RUN apt-get update && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends qpdf \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /opt/yarn-* \
+    /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/bin/yarn /usr/local/bin/yarnpkg
 WORKDIR /engine
 COPY --from=app /engine/dist dist
 COPY --from=app /engine/node_modules node_modules

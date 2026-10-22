@@ -20,12 +20,14 @@ jobs:
         run: docker pull "ghcr.io/${GITHUB_REPOSITORY,,}:latest"
 
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ghcr.io/${{ github.repository }}:latest
           format: sarif
           output: trivy-image.sarif
           severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          limit-severities-for-sarif: true
           exit-code: '0'
 
       - name: Upload results

@@ -132,6 +132,11 @@ function driverPath(): string {
   return requireBin('HYPER_DRV', 'hpdf-worker');
 }
 
+async function readSourceInfo(sourcePath: string): Promise<{ size: number; claimed: PdfaLevel | null }> {
+  const bytes = await fs.promises.readFile(sourcePath);
+  return { size: bytes.length, claimed: detectPdfaInBytes(bytes) };
+}
+
 async function statSize(p: string): Promise<number> {
   try {
     return (await fs.promises.stat(p)).size;
@@ -236,7 +241,7 @@ export async function compress(input: CompressInput): Promise<CompressResult> {
   const warnings: string[] = [];
   const password =
     typeof input.password === 'string' && input.password.length > 0 ? input.password : null;
-  const originalSize = (await fs.promises.stat(input.sourcePath)).size;
+  const { size: originalSize, claimed } = await readSourceInfo(input.sourcePath);
 
   const overall = new AbortController();
   const totalTimeoutMs = input.totalTimeoutMs;
@@ -258,7 +263,6 @@ export async function compress(input: CompressInput): Promise<CompressResult> {
     timeoutMs: input.timeoutMs ?? DEFAULT_STAGE_TIMEOUT_MS,
   };
 
-  const claimed = detectPdfaInBytes(await fs.promises.readFile(input.sourcePath));
   const preserving = Boolean(options.preserveConformance && claimed);
   if (preserving && claimed) {
     options = conformanceSafeOptions(options, claimed);
@@ -414,23 +418,21 @@ export async function compress(input: CompressInput): Promise<CompressResult> {
     throwIfAborted(effectiveSignal);
 
     let usedEngineOutput = false;
+    let finalSource = fallbackBase;
     if (packed) {
       const packedSize = await statSize(packed);
       if (packedSize > 0 && packedSize < baselineSize) {
-        await fs.promises.copyFile(packed, finalPath);
+        finalSource = packed;
         usedEngineOutput = true;
-      } else {
-        await fs.promises.copyFile(fallbackBase, finalPath);
       }
-    } else {
-      await fs.promises.copyFile(fallbackBase, finalPath);
     }
 
     if (preserving) {
       const src = await fs.promises.readFile(fallbackBase);
-      const outBytes = await fs.promises.readFile(finalPath);
-      const patched = restoreHeaderVersion(src, outBytes);
-      if (patched !== outBytes) await fs.promises.writeFile(finalPath, patched);
+      const outBytes = finalSource === fallbackBase ? src : await fs.promises.readFile(finalSource);
+      await fs.promises.writeFile(finalPath, restoreHeaderVersion(src, outBytes));
+    } else {
+      await fs.promises.copyFile(finalSource, finalPath);
     }
 
     const finalSize = await statSize(finalPath);
