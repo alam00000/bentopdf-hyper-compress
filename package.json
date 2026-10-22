@@ -64,5 +64,10 @@
     "optimize",
     "jpegli",
     "jbig2"
-  ]
+  ],
+  "overrides": {
+    "vitepress": {
+      "vite": "^6.4.5"
+    }
+  }
 }
