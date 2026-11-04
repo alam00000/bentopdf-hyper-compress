@@ -15,7 +15,7 @@ RUN mkdir -p core/build/gsrc && cd core/build/gsrc \
 COPY . .
 RUN docker/build-jpegli-linux.sh && docker/build-linux.sh
 
-FROM node:22-slim AS app
+FROM node:26-slim AS app
 WORKDIR /engine
 COPY package.json package-lock.json tsconfig.json ./
 COPY sdk sdk
@@ -26,7 +26,7 @@ COPY server server
 COPY tests/cli.test.ts tests/engine.integration.test.ts tests/errors.test.ts tests/helpers.ts tests/options.test.ts tests/pdfa.test.ts tests/
 RUN npm ci --no-audit --no-fund && npm run build && npm prune --omit=dev
 
-FROM node:22-trixie-slim
+FROM node:26-trixie-slim
 RUN apt-get update && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends qpdf \
     && rm -rf /var/lib/apt/lists/* \
