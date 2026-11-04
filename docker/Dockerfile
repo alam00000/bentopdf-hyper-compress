@@ -1,4 +1,4 @@
-FROM ubuntu:24.04 AS native
+FROM ubuntu:25.10 AS native
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates python3 xz-utils lsb-release file \
     build-essential cmake ninja-build pkg-config rsync \
