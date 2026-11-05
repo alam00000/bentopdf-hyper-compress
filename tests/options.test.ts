@@ -86,3 +86,34 @@ test('the target ladder ends below every preset, so a target can go further', as
   assert.equal(targetStartQuality(HYPER_PRESETS.medium), HYPER_PRESETS.medium.imageQuality);
   assert.ok(targetStartQuality(HYPER_PRESETS.lossless) <= 95);
 });
+
+test('mrc maps onto the engine MRC tokens and stays off by default and when lossless', () => {
+  for (const name of ['low', 'medium', 'high', 'lossless'] as const) {
+    const tokens = buildHyperTokens(normalizeHyperOptions(HYPER_PRESETS[name]));
+    assert.ok(!tokens.some((t) => t.startsWith('40=')), `${name} must not enable MRC`);
+  }
+  const auto = buildHyperTokens(normalizeHyperOptions({
+    ...HYPER_PRESETS.medium,
+    mrc: 'auto',
+    mrcBackgroundDpi: 70,
+    mrcBackgroundQuality: 25,
+    mrcForegroundQuality: 25,
+  }));
+  for (const t of ['40=1', '42=70', '43=25', '44=25']) assert.ok(auto.includes(t), t);
+  const force = buildHyperTokens(normalizeHyperOptions({ ...HYPER_PRESETS.medium, mrc: 'force' }));
+  for (const t of ['40=2', '42=75', '43=30', '44=50']) assert.ok(force.includes(t), t);
+  const lossless = buildHyperTokens(normalizeHyperOptions({ ...HYPER_PRESETS.lossless, mrc: 'force' }));
+  assert.ok(!lossless.some((t) => t.startsWith('40=')));
+  assert.equal(normalizeHyperOptions({ mrc: 'sometimes' }).mrc, 'off');
+  assert.equal(normalizeHyperOptions({ mrcBackgroundDpi: 5 }).mrcBackgroundDpi, 36);
+});
+
+test('contentPrecision rounds only on lossy runs and clamps to 0 or 3..8', () => {
+  const medium = buildHyperTokens(normalizeHyperOptions(HYPER_PRESETS.medium));
+  assert.ok(medium.includes('67=6'));
+  const lossless = buildHyperTokens(normalizeHyperOptions(HYPER_PRESETS.lossless));
+  assert.ok(!lossless.some((t) => t.startsWith('67=')));
+  assert.equal(normalizeHyperOptions({ contentPrecision: 1 }).contentPrecision, 3);
+  assert.equal(normalizeHyperOptions({ contentPrecision: 0 }).contentPrecision, 0);
+  assert.equal(normalizeHyperOptions({ contentPrecision: 20 }).contentPrecision, 8);
+});

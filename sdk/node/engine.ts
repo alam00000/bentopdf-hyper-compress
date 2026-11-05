@@ -180,11 +180,16 @@ function runQpdf(args: string[], limits?: StageLimits): Promise<boolean> {
   });
 }
 
-function runQpdfPack(inPath: string, outPath: string, limits?: StageLimits): Promise<boolean> {
+function runQpdfPack(
+  inPath: string,
+  outPath: string,
+  limits?: StageLimits,
+  recompressFlate = false,
+): Promise<boolean> {
   return runQpdf([
     '--warning-exit-0',
     '--object-streams=generate',
-    '--recompress-flate',
+    ...(recompressFlate ? ['--recompress-flate'] : []),
     '--compression-level=9',
     safeArgPath(inPath),
     safeArgPath(outPath),
@@ -351,7 +356,7 @@ export async function compress(input: CompressInput): Promise<CompressResult> {
       } else {
         packed = drvOut;
       }
-    } else if (!skipPack && (await runQpdfPack(workIn, packOut, limits)) &&
+    } else if (!skipPack && (await runQpdfPack(workIn, packOut, limits, true)) &&
                (await statSize(packOut)) > 0) {
       packed = packOut;
     }

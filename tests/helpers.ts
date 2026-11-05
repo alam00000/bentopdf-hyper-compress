@@ -259,3 +259,96 @@ export function countMarker(bytes: Uint8Array, marker: string): number {
   }
   return count;
 }
+
+function streamObject(dict: string, data: Uint8Array): Uint8Array {
+  const enc = new TextEncoder();
+  const head = enc.encode(`<< ${dict} /Length ${data.length} >>\nstream\n`);
+  const tail = enc.encode('\nendstream');
+  const out = new Uint8Array(head.length + data.length + tail.length);
+  out.set(head, 0);
+  out.set(data, head.length);
+  out.set(tail, head.length + data.length);
+  return out;
+}
+
+export function layeredScanPdf(): Uint8Array {
+  const w = 900;
+  const h = 1200;
+  const bg = Buffer.alloc(w * h * 3);
+  let rng = 0x9e3779b9 >>> 0;
+  const rand = (): number => {
+    rng ^= rng << 13;
+    rng >>>= 0;
+    rng ^= rng >>> 17;
+    rng ^= rng << 5;
+    rng >>>= 0;
+    return rng >>> 24;
+  };
+  for (let i = 0; i < w * h; i++) {
+    const n = (rand() & 15) - 8;
+    bg[i * 3] = 236 + n;
+    bg[i * 3 + 1] = 228 + n;
+    bg[i * 3 + 2] = 210 + n;
+  }
+  const rowBytes = Math.ceil(w / 8);
+  const mask = Buffer.alloc(rowBytes * h, 0);
+  for (let y = 0; y < h; y++) {
+    const line = Math.floor(y / 40);
+    const inLine = y % 40;
+    if (inLine < 6 || inLine > 26 || line < 2 || line > 27 || line % 2) continue;
+    for (let x = 60; x < w - 60; x++) {
+      const glyph = Math.floor((x - 60) / 14);
+      const gx = (x - 60) % 14;
+      if (glyph % 7 === 6) continue;
+      const bar = inLine < 7 || inLine > 25 ||
+        ((glyph + line) % 3 === 0 && inLine > 14 && inLine < 17);
+      if (gx < 1 || (gx < 11 && bar)) mask[y * rowBytes + (x >> 3)]! |= 0x80 >> (x & 7);
+    }
+  }
+  const dims = `/Type /XObject /Subtype /Image /Width ${w} /Height ${h}`;
+  const content = 'q 612 0 0 792 0 0 cm /Bg Do Q q 612 0 0 792 0 0 cm /Fg Do Q';
+  return buildPdf(
+    [
+      '<< /Type /Catalog /Pages 2 0 R >>',
+      '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] ' +
+        '/Contents 4 0 R /Resources << /XObject << /Bg 5 0 R /Fg 6 0 R >> >> >>',
+      `<< /Length ${content.length} >>\nstream\n${content}\nendstream`,
+      streamObject(`${dims} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode`,
+        deflateSync(bg)),
+      streamObject(`${dims} /ColorSpace /DeviceRGB /BitsPerComponent 8 /SMask 7 0 R ` +
+        '/Filter /FlateDecode', deflateSync(Buffer.alloc(w * h * 3, 0))),
+      streamObject(`${dims} /ColorSpace /DeviceGray /BitsPerComponent 1 /Filter /FlateDecode`,
+        deflateSync(mask)),
+    ],
+    1,
+  );
+}
+
+export function hasRenderer(): boolean {
+  return existsSync(path.join(prebuilt, 'hpdf-render'));
+}
+
+export function renderGray(bytes: Uint8Array, scale = 1): { width: number; height: number; gray: Uint8Array } {
+  const dir = mkdtempSync(path.join(tmpdir(), 'hyper-render-'));
+  try {
+    const inFile = path.join(dir, 'in.pdf');
+    const outFile = path.join(dir, 'out.ppm');
+    writeFileSync(inFile, bytes);
+    const r = spawnSync(path.join(prebuilt, 'hpdf-render'), [inFile, outFile, String(scale)]);
+    if (r.status !== 0) throw new Error(`hpdf-render failed (${r.status})`);
+    const ppm = readFileSync(outFile);
+    const header = /^P6\s+(\d+)\s+(\d+)\s+255\s/.exec(ppm.subarray(0, 64).toString('latin1'));
+    if (!header) throw new Error('unexpected PPM header');
+    const width = Number(header[1]);
+    const height = Number(header[2]);
+    const px = ppm.subarray(header[0].length);
+    const gray = new Uint8Array(width * height);
+    for (let i = 0; i < gray.length; i++) {
+      gray[i] = Math.round((px[i * 3]! + px[i * 3 + 1]! + px[i * 3 + 2]!) / 3);
+    }
+    return { width, height, gray };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}

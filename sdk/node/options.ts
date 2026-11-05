@@ -29,7 +29,16 @@ export interface HyperCompressOptions {
   removeOutputIntents: boolean;
   preserveConformance: boolean;
   brotli: boolean;
+  mrc: HyperMrcMode;
+  mrcBackgroundDpi: number;
+  mrcBackgroundQuality: number;
+  mrcForegroundQuality: number;
+  contentPrecision: number;
 }
+
+export type HyperMrcMode = 'off' | 'auto' | 'force';
+
+const MRC_MODES: readonly HyperMrcMode[] = ['off', 'auto', 'force'];
 
 export function normalizeHyperOptions(raw: unknown): HyperCompressOptions {
   const a = (raw ?? {}) as Partial<Record<keyof HyperCompressOptions, unknown>>;
@@ -70,6 +79,13 @@ export function normalizeHyperOptions(raw: unknown): HyperCompressOptions {
     removeOutputIntents: bool(a.removeOutputIntents, false),
     preserveConformance: bool(a.preserveConformance, false),
     brotli: bool(a.brotli, false),
+    mrc: MRC_MODES.includes(a.mrc as HyperMrcMode) ? (a.mrc as HyperMrcMode) : 'off',
+    mrcBackgroundDpi: clamp(a.mrcBackgroundDpi, 36, 300, 75),
+    mrcBackgroundQuality: clamp(a.mrcBackgroundQuality, 5, 100, 30),
+    mrcForegroundQuality: clamp(a.mrcForegroundQuality, 5, 100, 50),
+    contentPrecision: ((p) => (p === 0 ? 0 : Math.max(3, p)))(
+      clamp(a.contentPrecision, 0, 8, 0),
+    ),
   };
 }
 
@@ -115,6 +131,15 @@ export function buildHyperTokens(o: HyperCompressOptions): string[] {
   if (o.rasterizePages) {
     tokens.push(`60=${o.rasterizeText ? 2 : 1}`, `61=${o.rasterizeDpi}`, `62=${o.rasterizeQuality}`);
   }
+  if (!o.lossless && o.mrc !== 'off') {
+    tokens.push(
+      `40=${o.mrc === 'force' ? 2 : 1}`,
+      `42=${o.mrcBackgroundDpi}`,
+      `43=${o.mrcBackgroundQuality}`,
+      `44=${o.mrcForegroundQuality}`,
+    );
+  }
+  if (!o.lossless && o.contentPrecision > 0) tokens.push(`67=${o.contentPrecision}`);
   if (o.preserveConformance) tokens.push('64=3');
   if (o.brotli && !o.preserveConformance) tokens.push('65=1', '66=11');
   return tokens;
@@ -130,10 +155,11 @@ export type HyperOptionGroup =
 
 export interface HyperOptionDoc {
   group: HyperOptionGroup;
-  type: 'boolean' | 'number';
+  type: 'boolean' | 'number' | 'enum';
+  values?: readonly string[];
   min?: number;
   max?: number;
-  default: boolean | number;
+  default: boolean | number | string;
   description: string;
 }
 
@@ -177,6 +203,22 @@ export const HYPER_OPTION_DOCS: Record<keyof HyperCompressOptions, HyperOptionDo
   flattenIcc: {
     group: 'Images', type: 'boolean', default: false,
     description: 'Flatten ICC colour profiles.',
+  },
+  mrc: {
+    group: 'Images', type: 'enum', values: MRC_MODES, default: 'off',
+    description: 'Mixed raster content for scanned pages: each page image is split into a sharp 1-bit text mask, a low-resolution background and a low-resolution ink colour layer. auto applies it to pages made of one or two page-sized images and no visible text; force applies it to every page. Every rewritten page is rendered before and after and rolled back if it changed visibly. Ignored when lossless.',
+  },
+  mrcBackgroundDpi: {
+    group: 'Images', type: 'number', min: 36, max: 300, default: 75,
+    description: 'Resolution of the MRC background and ink colour layers. The text mask keeps the scan resolution, up to 300 dpi.',
+  },
+  mrcBackgroundQuality: {
+    group: 'Images', type: 'number', min: 5, max: 100, default: 30,
+    description: 'JPEG quality of the MRC background layer.',
+  },
+  mrcForegroundQuality: {
+    group: 'Images', type: 'number', min: 5, max: 100, default: 50,
+    description: 'JPEG quality of the MRC ink colour layer.',
   },
   rasterizePages: {
     group: 'Rasterization', type: 'boolean', default: false,
@@ -253,6 +295,10 @@ export const HYPER_OPTION_DOCS: Record<keyof HyperCompressOptions, HyperOptionDo
   preserveConformance: {
     group: 'Output format', type: 'boolean', default: false,
     description: 'Keep a PDF/A document conformant. Disables every step that would break the standard, including Brotli and rasterization; anything dropped is reported in warnings.',
+  },
+  contentPrecision: {
+    group: 'Output format', type: 'number', min: 0, max: 8, default: 0,
+    description: 'Number precision when page content is rewritten compactly. 0 keeps every value exactly. 3 to 8 rounds coordinates to that many significant digits (always keeping at least 3 decimals, so no value moves by more than 0.0005 units) and colours to 3 decimals. Ignored when lossless.',
   },
   brotli: {
     group: 'Output format', type: 'boolean', default: false,

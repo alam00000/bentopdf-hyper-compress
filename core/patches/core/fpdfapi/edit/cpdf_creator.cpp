@@ -23,6 +23,7 @@
 #include "core/fpdfapi/parser/cpdf_flateencoder.h"
 #include "core/fpdfapi/parser/cpdf_number.h"
 #include "core/fpdfapi/parser/cpdf_parser.h"
+#include "core/fpdfapi/parser/cpdf_reference.h"
 #include "core/fpdfapi/parser/cpdf_security_handler.h"
 #include "core/fpdfapi/parser/cpdf_string.h"
 #include "core/fpdfapi/parser/fpdf_parser_utility.h"
@@ -138,7 +139,8 @@ bool CPDF_Creator::WriteIndirectObj(uint32_t objnum, const CPDF_Object* pObj) {
   }
 
   std::unique_ptr<CPDF_Encryptor> encryptor;
-  if (GetCryptoHandler() && pObj != encrypt_dict_) {
+  if (GetCryptoHandler() && pObj != encrypt_dict_ &&
+      !IsPlaintextMetadataObjNum(objnum)) {
     encryptor = std::make_unique<CPDF_Encryptor>(GetCryptoHandler(), objnum);
   }
 
@@ -723,6 +725,16 @@ void CPDF_Creator::RemoveSecurity() {
   security_changed_ = true;
   encrypt_dict_ = nullptr;
   new_encrypt_dict_.Reset();
+}
+
+bool CPDF_Creator::IsPlaintextMetadataObjNum(uint32_t objnum) const {
+  if (!security_handler_ || security_handler_->IsMetadataEncrypted()) {
+    return false;
+  }
+  const CPDF_Dictionary* root = document_->GetRoot();
+  RetainPtr<const CPDF_Reference> ref =
+      root ? ToReference(root->GetObjectFor("Metadata")) : nullptr;
+  return ref && ref->GetRefObjNum() == objnum;
 }
 
 CPDF_CryptoHandler* CPDF_Creator::GetCryptoHandler() {

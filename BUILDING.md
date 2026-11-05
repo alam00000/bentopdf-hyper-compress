@@ -23,7 +23,9 @@ alias.
 
 The engine compiles into a pinned Google PDFium checkout as extra translation
 units in the `fpdfsdk` source set: `fpdf_compress.cpp` (the engine),
-`hyper_type1_wrap.cc` and `hyper_jbig2_wrap.cc` (Type 1 and JBIG2 helpers),
+`hyper_content_stream.cc` (content stream compaction, crop patching and
+threaded deflate), `hyper_type1_wrap.cc` and `hyper_jbig2_wrap.cc` (Type 1
+and JBIG2 helpers),
 and `hyper_generic_cmyk_icc.h` (embedded ICC data), with deps on the vendored
 `core/third_party/{afdko,jbig2enc,leptonica}`. `hyper_jpegli_wrap.cc` is not
 in the source set; it uses jpegli's native headers and is compiled and linked

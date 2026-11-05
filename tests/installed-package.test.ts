@@ -49,7 +49,7 @@ test('the packed tarball installs and works the way npm delivers it', async () =
       HYPER_OPTION_DOCS: Record<string, unknown>;
     };
     assert.equal(sdk.resolveOptions({ preset: 'high' }).imageQuality, 20);
-    assert.equal(Object.keys(sdk.HYPER_OPTION_DOCS).length, 30);
+    assert.equal(Object.keys(sdk.HYPER_OPTION_DOCS).length, 35);
 
     if (hasEngine()) {
       const src = path.join(dir, 'in.pdf');

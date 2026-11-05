@@ -90,11 +90,14 @@ source_set("fpdfsdk") {
   ]
   if (hyper_enable_compress) {
     sources += [
+      "fpdf_compress.cpp",
+      "hyper_content_stream.cc",
+      "hyper_content_stream.h",
       "hyper_jbig2_wrap.cc",
       "hyper_type1_wrap.cc",
-      "fpdf_compress.cpp",
     ]
     deps += [
+      "//third_party:zlib",
       "//third_party/afdko:afdko",
       "//third_party/brotli:enc",
       "//third_party/harfbuzz",

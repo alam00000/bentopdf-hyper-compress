@@ -15,6 +15,9 @@ import {
   pdfaPdf,
   xmpPdf,
   countMarker,
+  layeredScanPdf,
+  hasRenderer,
+  renderGray,
 } from './helpers.js';
 
 const engine = hasEngine();
@@ -172,4 +175,28 @@ test('the XMP packet is written as plain text whatever its input filter', opts, 
 test('metTarget is null when no target is requested', opts, async () => {
   const { result } = await run(textPdf(), { preset: 'medium' });
   assert.equal(result.metTarget, null);
+});
+
+test('MRC keeps the masked ink layer of an already-layered scan on top', {
+  skip: engine && hasRenderer() ? false : 'built worker/qpdf/renderer not present',
+}, async () => {
+  const src = layeredScanPdf();
+  const { output } = await run(src, { preset: 'medium', options: { mrc: 'auto' } });
+  assert.ok(
+    countMarker(output, '/CCITTFaxDecode') > 0,
+    'MRC must actually rewrite the page, a rollback would pin nothing',
+  );
+  const before = renderGray(src);
+  const after = renderGray(output);
+  assert.equal(after.width, before.width);
+  assert.equal(after.height, before.height);
+  let ink = 0;
+  let kept = 0;
+  for (let i = 0; i < before.gray.length; i++) {
+    if (before.gray[i]! >= 96) continue;
+    ink++;
+    if (after.gray[i]! < 128) kept++;
+  }
+  assert.ok(ink > 1000, 'the fixture must render visible ink');
+  assert.ok(kept / ink > 0.95, `ink kept ${(kept / ink).toFixed(3)}, the text was painted over`);
 });

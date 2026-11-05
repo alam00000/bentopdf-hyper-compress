@@ -20,6 +20,11 @@ trap 'rm -f "$TMP" "$TMP2" "$DEC" "$DERR"' EXIT
 fsize() { stat -f%z "$1" 2>/dev/null || stat -c%s "$1"; }
 
 pack() {
+  "$QPDF" --warning-exit-0 --object-streams=generate \
+    --compression-level=9 "$1" "$2" 2>/dev/null
+}
+
+repack() {
   "$QPDF" --warning-exit-0 --object-streams=generate --recompress-flate \
     --compression-level=9 "$1" "$2" 2>/dev/null
 }
@@ -41,7 +46,7 @@ if "$DRV" "$WORKIN" "$TMP" "$@" >/dev/null 2>"$DERR" && [ -s "$TMP" ]; then
   fi
   if pack "$TMP" "$TMP2" && [ -s "$TMP2" ]; then final="$TMP2"; else final="$TMP"; fi
 else
-  if pack "$WORKIN" "$TMP2" && [ -s "$TMP2" ]; then final="$TMP2"; fi
+  if repack "$WORKIN" "$TMP2" && [ -s "$TMP2" ]; then final="$TMP2"; fi
 fi
 
 if [ -n "$final" ] && [ -s "$final" ]; then

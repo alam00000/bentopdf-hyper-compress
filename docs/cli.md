@@ -28,7 +28,8 @@ If the engine skipped anything you asked for, it prints `warning:` lines to stde
 ```
 hyper <input.pdf> [output.pdf] [--preset low|medium|high|lossless]
                                [--password PW] [--set key=value ...]
-                               [--brotli] [--target-size N[KB|MB]]
+                               [--brotli] [--mrc off|auto|force]
+                               [--target-size N[KB|MB]]
 ```
 
 The output path is optional. Leave it out and the result is written next to the input as `<input>-compressed.pdf`:
@@ -96,6 +97,15 @@ hyper in.pdf out.pdf --brotli
 ```
 
 Shorthand for `--set brotli=true`: PDF 2.0 Brotli stream compression. Smaller files, but the reader must support it (MuPDF 1.26 and newer, Ghostscript 10.06 and newer, Firefox). Off by default for exactly that reason.
+
+### --mrc
+
+```bash
+hyper scan.pdf out.pdf --mrc auto
+hyper scan.pdf out.pdf --mrc auto --set mrcBackgroundDpi=70 --set mrcBackgroundQuality=25
+```
+
+Shorthand for `--set mrc=auto`: mixed raster content for scanned documents. Each scanned page is split into a sharp 1-bit text mask, a low-resolution background and a low-resolution ink colour layer, which is usually much smaller than one full-resolution photo of the page. `auto` only touches pages made of one or two page-sized images with no visible text; `force` tries every page. Every rewritten page is rendered before and after, and put back as it was if text faded or the page changed visibly. The layer resolution and qualities are the `mrcBackgroundDpi`, `mrcBackgroundQuality` and `mrcForegroundQuality` options. Off by default, and never applied with `--preset lossless`.
 
 ### --help and --version
 

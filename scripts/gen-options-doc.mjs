@@ -21,7 +21,11 @@ const GROUPS = [
 
 const fmt = (v) => (typeof v === 'boolean' ? (v ? 'true' : 'false') : String(v));
 const typeCell = (d) =>
-  d.type === 'number' ? `number ${d.min} to ${d.max}` : 'boolean';
+  d.type === 'number'
+    ? `number ${d.min} to ${d.max}`
+    : d.type === 'enum'
+      ? d.values.map((v) => `\`${v}\``).join(', ')
+      : 'boolean';
 
 let out = `---
 title: Options reference

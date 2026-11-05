@@ -10,7 +10,7 @@ export interface Parsed {
   output?: string | undefined;
   preset: CompressLevel;
   password: string | null;
-  overrides: Record<string, number | boolean>;
+  overrides: Record<string, number | boolean | string>;
   targetSizeBytes?: number | undefined;
   help: boolean;
   version: boolean;
@@ -21,7 +21,8 @@ const PRESETS: readonly CompressLevel[] = ['low', 'medium', 'high', 'lossless'];
 const USAGE =
   'usage: hyper <input.pdf> [output.pdf] [--preset low|medium|high|lossless]\n' +
   '                                      [--password PW] [--set key=value ...]\n' +
-  '                                      [--brotli] [--target-size N[KB|MB]]\n';
+  '                                      [--brotli] [--mrc off|auto|force]\n' +
+  '                                      [--target-size N[KB|MB]]\n';
 
 const HELP = `hyper - high fidelity, content preserving PDF compression
 
@@ -31,6 +32,8 @@ options:
   --password <pw>       password for an encrypted input
   --target-size <size>  aim for a size, e.g. 2MB, 500KB or a byte count
   --brotli              PDF 2.0 Brotli streams; the reader must support them
+  --mrc <mode>          mixed raster content for scans: off (default), auto
+                        (single-image scanned pages) or force (every page)
   --set <key=value>     override any engine option; repeatable
   -h, --help            show this help
   -v, --version         show the version
@@ -43,6 +46,7 @@ examples:
   hyper in.pdf out.pdf
   hyper in.pdf out.pdf --preset high
   hyper scan.pdf out.pdf --target-size 2MB
+  hyper scan.pdf out.pdf --mrc auto --set mrcBackgroundDpi=70
   hyper locked.pdf out.pdf --password hunter2
   hyper in.pdf out.pdf --set grayscale=true --set imageQuality=40
 
@@ -96,6 +100,12 @@ export function parse(argv: string[]): Parsed {
       p.password = argv[++i] ?? null;
     } else if (a === '--brotli') {
       p.overrides.brotli = true;
+    } else if (a === '--mrc') {
+      const v = argv[++i] ?? '';
+      if (v !== 'off' && v !== 'auto' && v !== 'force') {
+        usage('--mrc expects off, auto or force');
+      }
+      p.overrides.mrc = v;
     } else if (a === '--target-size') {
       const raw = (argv[++i] ?? '').trim();
       const m = /^([0-9]+(?:\.[0-9]+)?)\s*(kb|mb|k|m|b)?$/i.exec(raw);
@@ -113,7 +123,8 @@ export function parse(argv: string[]): Parsed {
       const key = kv.slice(0, eq);
       const raw = kv.slice(eq + 1);
       p.overrides[key] =
-        raw === 'true' ? true : raw === 'false' ? false : Number(raw);
+        raw === 'true' ? true : raw === 'false' ? false
+          : raw.trim() !== '' && Number.isFinite(Number(raw)) ? Number(raw) : raw;
     } else if (a.startsWith('-')) {
       usage(`unknown flag ${a}`);
     } else {

@@ -5,18 +5,23 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <deque>
 #include <functional>
 #include <map>
 #include <memory>
+#include <set>
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <string>
+#include <thread>
 #include <vector>
 
 #include "core/fpdfapi/edit/cpdf_pagecontentgenerator.h"
 #include "core/fpdfapi/font/cpdf_font.h"
 #include "core/fpdfapi/page/cpdf_clippath.h"
+#include "core/fpdfapi/page/cpdf_dib.h"
 #include "core/fpdfapi/page/cpdf_form.h"
 #include "core/fpdfapi/page/cpdf_formobject.h"
 #include "core/fpdfapi/page/cpdf_image.h"
@@ -45,6 +50,7 @@
 #include "core/fxcodec/flate/flatemodule.h"
 #include "third_party/brotli/include/brotli/encode.h"
 #include "core/fxcodec/jpeg/jpegmodule.h"
+#include "core/fxcodec/jpx/cjpx_decoder.h"
 #include "core/fxcrt/bytestring.h"
 #include "core/fxcrt/cfx_read_only_container_stream.h"
 #include "core/fxcrt/data_vector.h"
@@ -55,6 +61,7 @@
 #include "core/fxge/dib/cfx_dibbase.h"
 #include "core/fxge/dib/cfx_dibitmap.h"
 #include "core/fxge/dib/fx_dib.h"
+#include "fpdfsdk/hyper_content_stream.h"
 #include "fpdfsdk/cpdfsdk_helpers.h"
 #include "public/fpdf_flatten.h"
 #include "public/fpdf_formfill.h"
@@ -131,8 +138,11 @@ struct CompressOptions {
   int mrc_fg_quality = 50;
 
   int recompress_content_streams = 1;
+  int content_precision = 0;
+  int threads = 0;
   int stream_codec = 0;
   int brotli_quality = 11;
+
   int pdfa_mode = 0;
 };
 
@@ -965,6 +975,7 @@ class HyperFontOptimize {
       RetainPtr<CPDF_Dictionary> page_dict =
           doc_->GetMutablePageDictionary(page_index);
       if (!page_dict) continue;
+
       if (!HyperIsLoadablePageDict(page_dict.Get())) continue;
       auto page = pdfium::MakeRetain<CPDF_Page>(doc_, page_dict);
       page->ParseContent();
@@ -2178,7 +2189,9 @@ bool HyperTryEmitLossyIndexed(CPDF_Document* doc,
                               double max_mean_err,
                               int jpeg_quality,
                               int jpeg_subsample,
-                              bool pdfa_mode) {
+                              bool pdfa_mode,
+                              std::vector<uint8_t>* jpeg_dry_run = nullptr,
+                              int threads = 1) {
   if (!doc || !image || !bitmap) return false;
   const int w = bitmap->GetWidth();
   const int h = bitmap->GetHeight();
@@ -2221,15 +2234,25 @@ bool HyperTryEmitLossyIndexed(CPDF_Document* doc,
   HyperJbig2Free(q_indices);
   HyperJbig2Free(q_palette);
 
-  DataVector<uint8_t> flate = FlateModule::Encode(
-      pdfium::span<const uint8_t>(index_plane.data(), index_plane.size()));
-  if (flate.empty()) return false;
+  DataVector<uint8_t> flate;
+
+  auto deflate_plane = [&flate, &index_plane, threads] {
+    std::vector<uint8_t> z;
+    const bool ok =
+        index_plane.size() >= (1u << 20)
+            ? hyper_cs::DeflateParallel(index_plane.data(), index_plane.size(),
+                                        9, threads, &z)
+            : hyper_cs::Deflate(index_plane.data(), index_plane.size(), 9, &z);
+    if (ok) flate = DataVector<uint8_t>(z.begin(), z.end());
+  };
+  std::thread flate_thread;
+  if (threads > 1)
+    flate_thread = std::thread(deflate_plane);
+  else
+    deflate_plane();
+
   RetainPtr<const CPDF_Stream> orig_stream = image->GetStream();
-  if (!orig_stream) return false;
-  const size_t orig_size = orig_stream->GetRawSize();
-
-  const size_t new_size = flate.size() + static_cast<size_t>(q_ncolors) * 6;
-
+  const size_t orig_size = orig_stream ? orig_stream->GetRawSize() : 0;
   size_t alt_size = orig_size;
   {
     uint8_t* jl = nullptr;
@@ -2239,9 +2262,14 @@ bool HyperTryEmitLossyIndexed(CPDF_Document* doc,
                           jpeg_subsample ? 1 : 0, &jl, &jl_len) &&
         jl && jl_len) {
       if (alt_size == 0 || jl_len < alt_size) alt_size = jl_len;
+      if (jpeg_dry_run) jpeg_dry_run->assign(jl, jl + jl_len);
     }
     if (jl) HyperJpegliFree(jl);
   }
+  if (flate_thread.joinable()) flate_thread.join();
+  if (flate.empty() || !orig_stream) return false;
+
+  const size_t new_size = flate.size() + static_cast<size_t>(q_ncolors) * 6;
   if (alt_size == 0 || new_size >= alt_size) return false;
 
   auto dict = doc->New<CPDF_Dictionary>();
@@ -2264,82 +2292,86 @@ bool HyperTryEmitLossyIndexed(CPDF_Document* doc,
                                         false);
 }
 
-RetainPtr<CFX_DIBitmap> HyperClipBitmapToVisible(
-    RetainPtr<CFX_DIBitmap> bitmap,
-    const CFX_Matrix& image_ctm,
-    const CPDF_ClipPath& clip,
-    CFX_Matrix* out_matrix) {
-  *out_matrix = image_ctm;
+struct HyperCropPlan {
+  bool valid = false;
+  float l = 0, b = 0, r = 1, t = 1;
+};
 
-  if (!bitmap || !clip.HasRef() || clip.GetPathCount() == 0) {
-    return bitmap;
-  }
+HyperCropPlan HyperPlanCrop(const CFX_Matrix& image_ctm,
+                            const CPDF_ClipPath& clip) {
+  HyperCropPlan plan;
 
-  if (image_ctm.b != 0.0f || image_ctm.c != 0.0f) {
-    return bitmap;
-  }
-
-  CFX_FloatRect image_rect(0.0f, 0.0f, 1.0f, 1.0f);
-  image_rect = image_ctm.TransformRect(image_rect);
-  if (image_rect.Width() <= 0 || image_rect.Height() <= 0) {
-    return bitmap;
-  }
-
-  CFX_FloatRect clip_box = clip.GetClipBox();
-  if (clip_box.Width() <= 0 || clip_box.Height() <= 0) {
-    return bitmap;
-  }
-
+  if (!clip.HasRef() || clip.GetPathCount() == 0)
+    return plan;
+  const float det = image_ctm.a * image_ctm.d - image_ctm.b * image_ctm.c;
+  if (!std::isfinite(det) || std::fabs(det) < 1e-9f)
+    return plan;
+  const CFX_FloatRect image_rect =
+      image_ctm.TransformRect(CFX_FloatRect(0.0f, 0.0f, 1.0f, 1.0f));
+  if (image_rect.Width() <= 0 || image_rect.Height() <= 0)
+    return plan;
+  const CFX_FloatRect clip_box = clip.GetClipBox();
+  if (clip_box.Width() <= 0 || clip_box.Height() <= 0)
+    return plan;
   CFX_FloatRect visible = image_rect;
   visible.Intersect(clip_box);
-  if (visible.Width() <= 0 || visible.Height() <= 0) {
-    return bitmap;
-  }
+  if (visible.Width() <= 0 || visible.Height() <= 0)
+    return plan;
+  const CFX_FloatRect vn = image_ctm.GetInverse().TransformRect(visible);
+  plan.l = std::max(0.0f, vn.left);
+  plan.b = std::max(0.0f, vn.bottom);
+  plan.r = std::min(1.0f, vn.right);
+  plan.t = std::min(1.0f, vn.top);
+  if (!(plan.l < plan.r) || !(plan.b < plan.t))
+    return plan;
 
-  const float orig_area = image_rect.Width() * image_rect.Height();
-  const float vis_area = visible.Width() * visible.Height();
-  if (vis_area / orig_area > 0.9f) {
-    return bitmap;
-  }
+  if ((plan.r - plan.l) * (plan.t - plan.b) > 0.9f)
+    return plan;
+  plan.valid = true;
+  return plan;
+}
 
-  CFX_Matrix inv = image_ctm.GetInverse();
-  CFX_FloatRect visible_natural = inv.TransformRect(visible);
+RetainPtr<CFX_DIBitmap> HyperCropBitmap(const RetainPtr<CFX_DIBBase>& src,
+                                        const HyperCropPlan& plan,
+                                        double x_out[6]) {
+  if (!src || !plan.valid)
+    return nullptr;
+  if (src->GetBPP() < 8)
+    return nullptr;
 
+  auto bitmap = pdfium::MakeRetain<CFX_DIBitmap>();
+  if (!bitmap->Copy(src))
+    return nullptr;
+  if (src->HasPalette())
+    bitmap->SetPalette(src->GetPaletteSpan());
   const int src_w = bitmap->GetWidth();
   const int src_h = bitmap->GetHeight();
-  float l = std::max(0.0f, visible_natural.left);
-  float b = std::max(0.0f, visible_natural.bottom);
-  float r = std::min(1.0f, visible_natural.right);
-  float t = std::min(1.0f, visible_natural.top);
-  if (l >= r || b >= t) return bitmap;
 
-  int px_l = std::max(0, static_cast<int>(std::floor(l * src_w)));
-  int px_t = std::max(0, static_cast<int>(std::floor((1.0f - t) * src_h)));
-  int px_r = std::min(src_w, static_cast<int>(std::ceil(r * src_w)));
-  int px_b = std::min(src_h, static_cast<int>(std::ceil((1.0f - b) * src_h)));
-  int new_w = px_r - px_l;
-  int new_h = px_b - px_t;
-  if (new_w < 2 || new_h < 2) return bitmap;
-
+  const int px_l = std::max(0, static_cast<int>(std::floor(plan.l * src_w)));
+  const int px_t =
+      std::max(0, static_cast<int>(std::floor((1.0f - plan.t) * src_h)));
+  const int px_r = std::min(src_w, static_cast<int>(std::ceil(plan.r * src_w)));
+  const int px_b =
+      std::min(src_h, static_cast<int>(std::ceil((1.0f - plan.b) * src_h)));
+  const int new_w = px_r - px_l;
+  const int new_h = px_b - px_t;
+  if (new_w < 2 || new_h < 2)
+    return nullptr;
+  if (static_cast<int64_t>(new_w) * new_h * 10 >
+      static_cast<int64_t>(src_w) * src_h * 9)
+    return nullptr;
   auto cropped = pdfium::MakeRetain<CFX_DIBitmap>();
-  if (!cropped->Create(new_w, new_h, bitmap->GetFormat())) {
-    return bitmap;
-  }
+  if (!cropped->Create(new_w, new_h, bitmap->GetFormat()))
+    return nullptr;
+  if (bitmap->HasPalette())
+    cropped->SetPalette(bitmap->GetPaletteSpan());
   const int bpp = bitmap->GetBPP() / 8;
-  if (bpp < 1) {
-    return bitmap;
-  }
   const int src_pitch = bitmap->GetPitch();
   const int dst_pitch = cropped->GetPitch();
   pdfium::span<const uint8_t> src_span = bitmap->GetBuffer();
   pdfium::span<uint8_t> dst_span = cropped->GetWritableBuffer();
-  if (src_span.empty() || dst_span.empty()) {
-    return bitmap;
-  }
-
-  if (bitmap->HasPalette()) {
-    cropped->SetPalette(bitmap->GetPaletteSpan());
-  }
+  if (src_span.empty() || dst_span.empty())
+    return nullptr;
   for (int row = 0; row < new_h; ++row) {
     const uint8_t* src_row = src_span.data() +
                              static_cast<size_t>(px_t + row) * src_pitch +
@@ -2355,20 +2387,62 @@ RetainPtr<CFX_DIBitmap> HyperClipBitmapToVisible(
       const uint8_t* a = src_span.data() +
                          static_cast<size_t>(px_t + sy) * src_pitch +
                          static_cast<size_t>(px_l + sx) * bpp;
-      const uint8_t* b = dst_span.data() +
-                         static_cast<size_t>(sy) * dst_pitch +
+      const uint8_t* b = dst_span.data() + static_cast<size_t>(sy) * dst_pitch +
                          static_cast<size_t>(sx) * bpp;
       if (std::memcmp(a, b, bpp) != 0) {
         fprintf(stderr, "[hyper] clip crop verify FAILED  - clip skipped\n");
-        return bitmap;
+        return nullptr;
       }
     }
   }
-
-  *out_matrix = CFX_Matrix(
-      visible.Width(), 0.0f, 0.0f, visible.Height(), visible.left,
-      visible.bottom);
+  const double l = static_cast<double>(px_l) / src_w;
+  const double r = static_cast<double>(px_r) / src_w;
+  const double t = 1.0 - static_cast<double>(px_t) / src_h;
+  const double b = 1.0 - static_cast<double>(px_b) / src_h;
+  x_out[0] = r - l;
+  x_out[1] = 0;
+  x_out[2] = 0;
+  x_out[3] = t - b;
+  x_out[4] = l;
+  x_out[5] = b;
   return cropped;
+}
+
+static void HyperConcatMatrix(const double a[6], const double b[6],
+                              double out[6]) {
+  double r[6];
+  r[0] = a[0] * b[0] + a[1] * b[2];
+  r[1] = a[0] * b[1] + a[1] * b[3];
+  r[2] = a[2] * b[0] + a[3] * b[2];
+  r[3] = a[2] * b[1] + a[3] * b[3];
+  r[4] = a[4] * b[0] + a[5] * b[2] + b[4];
+  r[5] = a[4] * b[1] + a[5] * b[3] + b[5];
+  std::memcpy(out, r, sizeof(r));
+}
+
+bool HyperOverwriteWithSetImage(CPDF_Document* doc,
+                                const RetainPtr<CPDF_Image>& image,
+                                const RetainPtr<CFX_DIBitmap>& bitmap) {
+  if (!doc || !image || !bitmap)
+    return false;
+  auto scratch = pdfium::MakeRetain<CPDF_Image>(doc);
+  scratch->SetImage(bitmap);
+  RetainPtr<const CPDF_Stream> ns = scratch->GetStream();
+  RetainPtr<const CPDF_Dictionary> nd = ns ? ns->GetDict() : nullptr;
+  if (!nd)
+    return false;
+  auto acc = pdfium::MakeRetain<CPDF_StreamAcc>(ns);
+  acc->LoadAllDataRaw();
+  pdfium::span<const uint8_t> raw = acc->GetSpan();
+  if (raw.empty())
+    return false;
+  RetainPtr<CPDF_Dictionary> dict = ToDictionary(nd->Clone());
+  if (!dict)
+    return false;
+  dict->RemoveFor("Length");
+  return image->OverwriteStreamInPlace(DataVector<uint8_t>(raw.begin(), raw.end()),
+                                       std::move(dict),
+                                        false);
 }
 
 RetainPtr<CFX_DIBitmap> HyperConvertToICCGray(
@@ -2577,8 +2651,16 @@ bool HyperEmitJpeg(CPDF_Document* doc,
                    int subsample,
                    bool optimize_huffman,
                    bool progressive,
-                   size_t skip_if_ge = 0) {
+                   size_t skip_if_ge = 0,
+                   std::vector<uint8_t>* pre_encoded = nullptr) {
   if (!image || !bitmap) return false;
+  if (pre_encoded && !pre_encoded->empty() && !progressive &&
+      !getenv("HYPER_JPEGLI_OFF")) {
+    if (skip_if_ge && pre_encoded->size() >= skip_if_ge) return false;
+    return HyperOverwriteJpegInPlace(
+        doc, image,
+        DataVector<uint8_t>(pre_encoded->begin(), pre_encoded->end()));
+  }
 
   const int bpp = bitmap->GetBPP();
   if (!getenv("HYPER_JPEGLI_OFF") && (bpp == 8 || bpp == 24 || bpp == 32)) {
@@ -2815,21 +2897,20 @@ OPJ_BOOL HyperJp2SeekCb(OPJ_OFF_T offset, void* p_user) {
 }
 }
 
-bool HyperEmitJpeg2000(CPDF_Document* doc,
-                       RetainPtr<CPDF_Image> image,
-                       const RetainPtr<CFX_DIBitmap>& bitmap,
-                       int quality,
-                       size_t budget = 0) {
-  if (!doc || !image || !bitmap) return false;
-  const int w = bitmap->GetWidth();
-  const int h = bitmap->GetHeight();
-  const int bpp = bitmap->GetBPP();
-  if (w < 1 || h < 1) return false;
+constexpr int kHyperMinJpxPixels = 128 * 128;
 
-  if (bpp != 8 && bpp != 24 && bpp != 32) return false;
+std::vector<uint8_t> HyperEncodeJpxPixels(const uint8_t* src_buf_ptr,
+                                          int w,
+                                          int h,
+                                          int stride,
+                                          int bpp,
+                                          int quality,
+                                          int threads) {
+  if (!src_buf_ptr || w < 1 || h < 1) return {};
 
-  constexpr int kMinJpxPixels = 128 * 128;
-  if (static_cast<int64_t>(w) * h < kMinJpxPixels) return false;
+  if (bpp != 8 && bpp != 24 && bpp != 32) return {};
+
+  if (static_cast<int64_t>(w) * h < kHyperMinJpxPixels) return {};
 
   opj_image_cmptparm_t comptparms[3] = {};
   for (int c = 0; c < 3; ++c) {
@@ -2842,15 +2923,13 @@ bool HyperEmitJpeg2000(CPDF_Document* doc,
   }
   opj_image_t* opj_img =
       opj_image_create(3, comptparms, OPJ_CLRSPC_SRGB);
-  if (!opj_img) return false;
+  if (!opj_img) return {};
   opj_img->x1 = static_cast<OPJ_UINT32>(w);
   opj_img->y1 = static_cast<OPJ_UINT32>(h);
 
-  pdfium::span<const uint8_t> src_buf = bitmap->GetBuffer();
-  const int stride = bitmap->GetPitch();
   const int step = (bpp == 24) ? 3 : (bpp == 32 ? 4 : 1);
   for (int y = 0; y < h; ++y) {
-    const uint8_t* row = src_buf.data() + y * stride;
+    const uint8_t* row = src_buf_ptr + static_cast<size_t>(y) * stride;
     for (int x = 0; x < w; ++x) {
       const uint8_t* px = row + x * step;
       const int idx = y * w + x;
@@ -2886,12 +2965,15 @@ bool HyperEmitJpeg2000(CPDF_Document* doc,
   opj_codec_t* codec = opj_create_compress(OPJ_CODEC_JP2);
   if (!codec) {
     opj_image_destroy(opj_img);
-    return false;
+    return {};
   }
+
+  if (threads > 1 && static_cast<int64_t>(w) * h >= (1 << 17))
+    opj_codec_set_threads(codec, threads);
   if (!opj_setup_encoder(codec, &params, opj_img)) {
     opj_destroy_codec(codec);
     opj_image_destroy(opj_img);
-    return false;
+    return {};
   }
 
   Jp2WriteCtx ctx;
@@ -2901,7 +2983,7 @@ bool HyperEmitJpeg2000(CPDF_Document* doc,
   if (!stream) {
     opj_destroy_codec(codec);
     opj_image_destroy(opj_img);
-    return false;
+    return {};
   }
   opj_stream_set_write_function(stream, &HyperJp2WriteCb);
   opj_stream_set_skip_function(stream, &HyperJp2SkipCb);
@@ -2917,9 +2999,23 @@ bool HyperEmitJpeg2000(CPDF_Document* doc,
   opj_destroy_codec(codec);
   opj_image_destroy(opj_img);
 
-  if (!ok || ctx.buf.empty()) return false;
+  if (!ok || ctx.buf.empty()) return {};
+  return std::move(ctx.buf);
+}
 
-  if (budget > 0 && ctx.buf.size() >= budget) return false;
+bool HyperCommitJpx(CPDF_Document* doc,
+                    RetainPtr<CPDF_Image> image,
+                    const RetainPtr<CFX_DIBitmap>& bitmap,
+                    const std::vector<uint8_t>& jpx,
+                    size_t budget) {
+  if (!doc || !image || !bitmap || jpx.empty()) return false;
+  if (budget > 0 && jpx.size() >= budget) return false;
+  const int w = bitmap->GetWidth();
+  const int h = bitmap->GetHeight();
+  const int bpp = bitmap->GetBPP();
+  const int step = (bpp == 24) ? 3 : (bpp == 32 ? 4 : 1);
+  pdfium::span<const uint8_t> src_buf = bitmap->GetBuffer();
+  const int stride = bitmap->GetPitch();
 
   {
     constexpr double kMaxJpxMeanAbsErr = 12.0;
@@ -2932,8 +3028,7 @@ bool HyperEmitJpeg2000(CPDF_Document* doc,
 
     jdict->SetNewFor<CPDF_Name>("Filter", "JPXDecode");
     auto jstream = pdfium::MakeRetain<CPDF_Stream>(
-        DataVector<uint8_t>(ctx.buf.begin(), ctx.buf.end()),
-        std::move(jdict));
+        DataVector<uint8_t>(jpx.begin(), jpx.end()), std::move(jdict));
     auto jimg = pdfium::MakeRetain<CPDF_Image>(doc, std::move(jstream));
     RetainPtr<CFX_DIBBase> dec = jimg->LoadDIBBase();
     if (!dec || dec->GetWidth() != w || dec->GetHeight() != h ||
@@ -2971,8 +3066,7 @@ bool HyperEmitJpeg2000(CPDF_Document* doc,
     if (!cnt || err_sum / cnt > kMaxJpxMeanAbsErr) return false;
   }
 
-  DataVector<uint8_t> jpx_bytes(ctx.buf.data(),
-                                 ctx.buf.data() + ctx.buf.size());
+  DataVector<uint8_t> jpx_bytes(jpx.begin(), jpx.end());
   auto dict = doc->New<CPDF_Dictionary>();
   dict->SetNewFor<CPDF_Name>("Type", "XObject");
   dict->SetNewFor<CPDF_Name>("Subtype", "Image");
@@ -2985,6 +3079,52 @@ bool HyperEmitJpeg2000(CPDF_Document* doc,
                                         std::move(dict),
                                          false);
 }
+
+bool HyperEmitJpeg2000(CPDF_Document* doc,
+                       RetainPtr<CPDF_Image> image,
+                       const RetainPtr<CFX_DIBitmap>& bitmap,
+                       int quality,
+                       size_t budget = 0,
+                       int threads = 1) {
+  if (!doc || !image || !bitmap) return false;
+  pdfium::span<const uint8_t> buf = bitmap->GetBuffer();
+  return HyperCommitJpx(
+      doc, image, bitmap,
+      HyperEncodeJpxPixels(buf.data(), bitmap->GetWidth(), bitmap->GetHeight(),
+                           bitmap->GetPitch(), bitmap->GetBPP(), quality,
+                           threads),
+      budget);
+}
+
+class HyperJpxAsync {
+ public:
+  HyperJpxAsync(const RetainPtr<CFX_DIBitmap>& bm, int quality, int threads) {
+    pdfium::span<const uint8_t> buf = bm->GetBuffer();
+    const uint8_t* data = buf.data();
+    const int w = bm->GetWidth(), h = bm->GetHeight();
+    const int pitch = static_cast<int>(bm->GetPitch()), bpp = bm->GetBPP();
+    if (threads <= 1) {
+      result_ = HyperEncodeJpxPixels(data, w, h, pitch, bpp, quality, 1);
+      return;
+    }
+    thread_ = std::thread([this, data, w, h, pitch, bpp, quality, threads] {
+      result_ = HyperEncodeJpxPixels(data, w, h, pitch, bpp, quality, threads);
+    });
+  }
+  ~HyperJpxAsync() {
+    if (thread_.joinable()) thread_.join();
+  }
+  HyperJpxAsync(const HyperJpxAsync&) = delete;
+  HyperJpxAsync& operator=(const HyperJpxAsync&) = delete;
+  std::vector<uint8_t> Take() {
+    if (thread_.joinable()) thread_.join();
+    return std::move(result_);
+  }
+
+ private:
+  std::thread thread_;
+  std::vector<uint8_t> result_;
+};
 
 void HyperUnshareResourceTree(CPDF_Document* doc,
                               CPDF_PageObjectHolder* holder) {
@@ -3243,6 +3383,21 @@ static double HyperPreviewMeanAbsDiff(const std::vector<uint8_t>& a, int aw,
   return sum / static_cast<double>(a.size());
 }
 
+static double HyperPreviewInkLoss(const std::vector<uint8_t>& a, int aw,
+                                  int ah, const std::vector<uint8_t>& b,
+                                  int bw, int bh) {
+  if (a.empty() || b.empty() || aw != bw || ah != bh)
+    return 1.0;
+  size_t ink = 0, lost = 0;
+  for (size_t i = 0; i < a.size(); ++i) {
+    if (a[i] >= 128) continue;
+    ++ink;
+    if (b[i] > a[i] + (255 - a[i]) / 2) ++lost;
+  }
+  if (ink < 64) return 0.0;
+  return static_cast<double>(lost) / static_cast<double>(ink);
+}
+
 struct HyperRegenSnapshot {
   struct StreamState {
     uint32_t objnum = 0;
@@ -3342,99 +3497,208 @@ class HyperImageRewrite {
                     const std::unordered_set<int>& skip_pages)
       : doc_(doc), opts_(opts), skip_pages_(skip_pages) {}
 
+  ~HyperImageRewrite() {
+    for (PendingJpx& pj : pending_jpx_)
+      if (pj.job) pj.job->Take();
+  }
+
   int Run() {
     int rewrites = 0;
 
-    BuildImageRefCensus();
-
-    std::function<bool(CPDF_PageObjectHolder*, const CFX_Matrix&)> walk_holder =
-        [&](CPDF_PageObjectHolder* holder, const CFX_Matrix& holder_ctm)
-            -> bool {
-          if (!holder) return false;
-          bool holder_changed = false;
-          const size_t obj_count = holder->GetActivePageObjectCount();
-
-          size_t holder_image_objs = 0;
-          for (size_t i = 0; i < obj_count; ++i) {
-            CPDF_PageObject* o = holder->GetPageObjectByIndex(i);
-            if (o && o->IsImage())
-              ++holder_image_objs;
-          }
-          const bool skip_image_rewrite =
-              holder_image_objs > kMaxImagesToRewrite;
-          for (size_t i = 0; i < obj_count; ++i) {
-            CPDF_PageObject* obj = holder->GetPageObjectByIndex(i);
-            if (!obj) continue;
-            if (obj->IsImage()) {
-              if (skip_image_rewrite) continue;
-              CPDF_ImageObject* image_obj = obj->AsImage();
-              if (image_obj &&
-                  MaybeRewriteImageObject(image_obj, holder_ctm)) {
-
-                if (last_rewrite_needs_regen_) holder_changed = true;
-                ++rewrites;
-              }
-            } else if (obj->IsForm()) {
-              CPDF_FormObject* form_obj = obj->AsForm();
-              if (form_obj && form_obj->form()) {
-
-                if (walk_holder(form_obj->form(),
-                                form_obj->form_matrix() * holder_ctm)) {
-
-                  pending_form_regens_.push_back(form_obj->form());
-                }
-              }
-            }
-          }
-          return holder_changed;
-        };
+    BuildCensus();
     const int page_count = doc_->GetPageCount();
     for (int page_index = 0; page_index < page_count; ++page_index) {
       if (skip_pages_.count(page_index)) continue;
+
+      if (census_complete_ &&
+          static_cast<size_t>(page_index) < page_has_images_.size() &&
+          !page_has_images_[page_index])
+        continue;
       RetainPtr<CPDF_Dictionary> page_dict =
           doc_->GetMutablePageDictionary(page_index);
       if (!page_dict) continue;
+
       if (!HyperIsLoadablePageDict(page_dict.Get())) continue;
       auto page = pdfium::MakeRetain<CPDF_Page>(doc_, page_dict);
       page->ParseContent();
 
-      pending_form_regens_.clear();
-      const bool page_changed = walk_holder(page.Get(), CFX_Matrix());
-      if (page_changed || !pending_form_regens_.empty()) {
-
-        int pw = 0, ph = 0, qw = 0, qh = 0;
-        std::vector<uint8_t> pre =
-            HyperRenderPreviewGray(doc_, page_index, &pw, &ph);
-        HyperRegenSnapshot snap =
-            HyperCaptureRegenSnapshot(page_dict, pending_form_regens_);
-        for (CPDF_Form* f : pending_form_regens_) {
-          HyperUnshareResourceTree(doc_, f);
-          CPDF_PageContentGenerator nested_gen(f);
-          nested_gen.GenerateContent();
-        }
-        if (page_changed) {
-          HyperUnshareResourceTree(doc_, page.Get());
-          CPDF_PageContentGenerator generator(page.Get());
-          generator.GenerateContent();
-        }
-        std::vector<uint8_t> post =
-            HyperRenderPreviewGray(doc_, page_index, &qw, &qh);
-        const double mad = HyperPreviewMeanAbsDiff(pre, pw, ph, post, qw, qh);
-        if (mad > 2.5) {
-          HyperRestoreRegenSnapshot(doc_, snap);
-          fprintf(stderr,
-                  "[hyper] regen verify FAILED on page %d (meanAbsDiff %.1f)"
-                  "  - content restored, images kept in place\n",
-                  page_index + 1, mad);
-        }
-      }
+      rewrites += WalkHolder(page.Get(), CFX_Matrix(),
+                             PatchablePageStream(page_dict.Get()));
     }
+
+    ResolveAllJpx();
 
     FinaliseJbig2Batch();
     return rewrites;
   }
 
  private:
+
+  struct PendingDoPatch {
+    ByteString name;
+    int occurrence = 0;
+    uint32_t copy_objnum = 0;
+    double m[6] = {1, 0, 0, 1, 0, 0};
+  };
+
+  int WalkHolder(CPDF_PageObjectHolder* holder,
+                 const CFX_Matrix& holder_ctm,
+                 RetainPtr<CPDF_Stream> stream) {
+    if (!holder) return 0;
+    int rewrites = 0;
+    const size_t obj_count = holder->GetActivePageObjectCount();
+
+    size_t holder_image_objs = 0;
+    bool has_inline_image = false;
+    bool has_inheriting_form = false;
+    for (size_t i = 0; i < obj_count; ++i) {
+      CPDF_PageObject* o = holder->GetPageObjectByIndex(i);
+      if (!o) continue;
+      if (o->IsImage()) {
+        ++holder_image_objs;
+        CPDF_ImageObject* io = o->AsImage();
+        if (io && io->GetImage() && io->GetImage()->IsInline())
+          has_inline_image = true;
+      } else if (o->IsForm()) {
+        CPDF_FormObject* fo = o->AsForm();
+        RetainPtr<const CPDF_Stream> fs =
+            fo && fo->form() ? fo->form()->GetStream() : nullptr;
+        RetainPtr<const CPDF_Dictionary> fd = fs ? fs->GetDict() : nullptr;
+        if (fd && !fd->GetDictFor("Resources"))
+          has_inheriting_form = true;
+      }
+    }
+    const bool skip_image_rewrite = holder_image_objs > kMaxImagesToRewrite;
+
+    const bool patchable = stream && !has_inline_image;
+    std::map<ByteString, int> occurrence;
+    std::vector<PendingDoPatch> patches;
+    for (size_t i = 0; i < obj_count; ++i) {
+      CPDF_PageObject* obj = holder->GetPageObjectByIndex(i);
+      if (!obj) continue;
+      if (obj->IsImage()) {
+        CPDF_ImageObject* image_obj = obj->AsImage();
+        if (!image_obj) continue;
+        const ByteString& name = image_obj->GetResourceName();
+        const int occ = name.IsEmpty() ? -1 : occurrence[name]++;
+        if (skip_image_rewrite) continue;
+        SimplifySoftMask(image_obj);
+        last_cow_objnum_ = 0;
+        if (MaybeRewriteImageObject(image_obj, holder_ctm,
+                                    patchable && occ >= 0)) {
+          ++rewrites;
+          if (last_cow_objnum_) {
+            PendingDoPatch p;
+            p.name = name;
+            p.occurrence = occ;
+            p.copy_objnum = last_cow_objnum_;
+            std::memcpy(p.m, last_crop_x_, sizeof(p.m));
+            patches.push_back(std::move(p));
+          }
+        }
+      } else if (obj->IsForm()) {
+        CPDF_FormObject* form_obj = obj->AsForm();
+        if (form_obj && form_obj->form()) {
+          rewrites += WalkHolder(form_obj->form(),
+                                 form_obj->form_matrix() * holder_ctm,
+                                 PatchableFormStream(form_obj->form()));
+        }
+      }
+    }
+    if (!patches.empty())
+      ApplyDoPatches(holder, stream, patches, has_inheriting_form);
+    return rewrites;
+  }
+
+  RetainPtr<CPDF_Stream> PatchablePageStream(const CPDF_Dictionary* page_dict) {
+    if (!page_dict) return nullptr;
+    RetainPtr<const CPDF_Object> c = page_dict->GetDirectObjectFor("Contents");
+    if (!c) return nullptr;
+    uint32_t objnum = 0;
+    if (const CPDF_Stream* cs = c->AsStream()) {
+      objnum = cs->GetObjNum();
+    } else if (const CPDF_Array* ca = c->AsArray()) {
+      if (ca->size() != 1) return nullptr;
+      RetainPtr<const CPDF_Stream> st = ca->GetStreamAt(0);
+      objnum = st ? st->GetObjNum() : 0;
+    }
+    if (!objnum || IncomingRefs(objnum) != 1) return nullptr;
+    return ToStream(doc_->GetMutableIndirectObject(objnum));
+  }
+
+  RetainPtr<CPDF_Stream> PatchableFormStream(const CPDF_Form* form) {
+    if (!form || !census_complete_) return nullptr;
+    RetainPtr<const CPDF_Stream> fs = form->GetStream();
+    const uint32_t objnum = fs ? fs->GetObjNum() : 0;
+    if (!objnum) return nullptr;
+    RetainPtr<const CPDF_Dictionary> fd = fs->GetDict();
+    RetainPtr<const CPDF_Dictionary> fres = fd ? fd->GetDictFor("Resources") : nullptr;
+    if (!fres || !fres->GetDictFor("XObject")) return nullptr;
+    auto it = form_draws_.find(objnum);
+    if (it == form_draws_.end() || it->second != 1) return nullptr;
+    if (IncomingRefs(objnum) != 1) return nullptr;
+    return ToStream(doc_->GetMutableIndirectObject(objnum));
+  }
+
+  int IncomingRefs(uint32_t objnum) const {
+    auto it = incoming_refs_.find(objnum);
+    return it == incoming_refs_.end() ? 0 : it->second;
+  }
+
+  void ApplyDoPatches(CPDF_PageObjectHolder* holder,
+                      const RetainPtr<CPDF_Stream>& stream,
+                      const std::vector<PendingDoPatch>& patches,
+                      bool has_inheriting_form) {
+    if (!stream) return;
+    RetainPtr<const CPDF_Dictionary> res = holder->GetResources();
+    RetainPtr<const CPDF_Dictionary> xobj = res ? res->GetDictFor("XObject") : nullptr;
+    if (!xobj) return;
+    std::set<ByteString> taken;
+    {
+      CPDF_DictionaryLocker locker(xobj);
+      for (const auto& it : locker) taken.insert(it.first);
+    }
+    std::vector<hyper_cs::DoPatch> dps;
+    dps.reserve(patches.size());
+    for (const PendingDoPatch& p : patches) {
+      ByteString nn = ByteString::Format("Bt%u", p.copy_objnum);
+      for (int k = 1; taken.count(nn); ++k)
+        nn = ByteString::Format("Bt%u_%d", p.copy_objnum, k);
+      taken.insert(nn);
+      hyper_cs::DoPatch dp;
+      dp.name = std::string(p.name.c_str(), p.name.GetLength());
+      dp.occurrence = p.occurrence;
+      dp.new_name = std::string(nn.c_str(), nn.GetLength());
+      dp.has_matrix = true;
+      std::memcpy(dp.m, p.m, sizeof(dp.m));
+      dps.push_back(std::move(dp));
+    }
+    auto acc = pdfium::MakeRetain<CPDF_StreamAcc>(stream);
+    acc->LoadAllDataFiltered();
+    pdfium::span<const uint8_t> sp = acc->GetSpan();
+    hyper_cs::PatchResult pr;
+    if (sp.empty() || !hyper_cs::PatchDoSites(sp.data(), sp.size(), dps, &pr)) {
+      return;
+    }
+    HyperUnshareResourceTree(doc_, holder);
+    RetainPtr<CPDF_Dictionary> res2 = holder->GetMutableResources();
+    RetainPtr<CPDF_Dictionary> xobj2 = res2 ? res2->GetMutableDictFor("XObject") : nullptr;
+    if (!xobj2) return;
+    for (size_t i = 0; i < dps.size(); ++i) {
+      xobj2->SetNewFor<CPDF_Reference>(ByteString(dps[i].new_name.c_str()), doc_,
+                                       patches[i].copy_objnum);
+    }
+    if (!has_inheriting_form) {
+      for (const PendingDoPatch& p : patches) {
+        const std::string old(p.name.c_str(), p.name.GetLength());
+        auto u = pr.uses.find(old);
+        if (u == pr.uses.end() || u->second == 0)
+          xobj2->RemoveFor(p.name.AsStringView());
+      }
+    }
+    stream->SetDataAndRemoveFilter(pdfium::span<const uint8_t>(
+        reinterpret_cast<const uint8_t*>(pr.content.data()), pr.content.size()));
+  }
 
   bool HyperEmitSpotResampled(RetainPtr<CPDF_Image> image,
                               RetainPtr<const CPDF_Dictionary> img_dict,
@@ -3714,11 +3978,21 @@ class HyperImageRewrite {
     uint8_t* jbuf = nullptr;
     size_t jlen = 0;
     const int q = opts_.image_quality > 0 ? opts_.image_quality : 75;
+
+    DataVector<uint8_t> flate;
+    auto deflate_mask = [&flate, &raw] {
+      flate = FlateModule::Encode(
+          pdfium::span<const uint8_t>(raw.data(), raw.size()));
+    };
+    std::thread flate_thread;
+    if (hyper_cs::ResolveThreadCount(opts_.threads) > 1)
+      flate_thread = std::thread(deflate_mask);
+    else
+      deflate_mask();
     const bool jok = HyperJpegliEncode(raw.data(), tw, th, tw,  1,
                                         0, q,  0,
                                         0, &jbuf, &jlen);
-    DataVector<uint8_t> flate = FlateModule::Encode(
-        pdfium::span<const uint8_t>(raw.data(), raw.size()));
+    if (flate_thread.joinable()) flate_thread.join();
     const bool use_jpeg = jok && jbuf && jlen > 0 &&
                           (flate.empty() || jlen < flate.size());
     DataVector<uint8_t> payload;
@@ -3750,12 +4024,52 @@ class HyperImageRewrite {
     return pdfium::MakeRetain<CPDF_Reference>(doc_, nstream->GetObjNum());
   }
 
+  uint8_t ReducedJpxLevels(const RetainPtr<CPDF_Image>& image,
+                           const CPDF_Dictionary* d,
+                           float effective_dpi) const {
+    if (!image || !d) return 0;
+    if (opts_.image_encoding != HYPERC_IMAGE_ENCODING_AUTO) return 0;
+    if (opts_.image_max_dpi <= 0 || opts_.image_color_max_dpi > 0 ||
+        opts_.image_gray_max_dpi > 0 || opts_.image_mono_max_dpi > 0)
+      return 0;
+    RetainPtr<const CPDF_Object> f = d->GetDirectObjectFor("Filter");
+    const CPDF_Array* fa = f ? f->AsArray() : nullptr;
+    RetainPtr<const CPDF_Object> f0 =
+        fa ? (fa->size() == 1 ? fa->GetDirectObjectAt(0) : nullptr) : f;
+    if (!f0 || !f0->IsName() || f0->GetString() != "JPXDecode") return 0;
+    if (d->KeyExist("Decode") || d->GetIntegerFor("SMaskInData") != 0) return 0;
+    if (RetainPtr<const CPDF_Object> cs = d->GetDirectObjectFor("ColorSpace")) {
+      if (const CPDF_Array* ca = cs->AsArray()) {
+        RetainPtr<const CPDF_Object> head = ca->GetDirectObjectAt(0);
+        if (!head || !head->IsName() || head->GetString() != "ICCBased")
+          return 0;
+      } else if (!cs->IsName()) {
+        return 0;
+      }
+    }
+    const float max_dpi = static_cast<float>(opts_.image_max_dpi);
+    const float threshold = opts_.image_threshold_dpi > 0
+                                ? static_cast<float>(opts_.image_threshold_dpi)
+                                : max_dpi;
+    if (!(effective_dpi > threshold) || effective_dpi <= 0) return 0;
+    const double inv_scale = effective_dpi / max_dpi;
+    int levels = static_cast<int>(std::floor(std::log2(inv_scale)));
+    if (levels > 5) levels = 5;
+    const int w = image->GetPixelWidth(), h = image->GetPixelHeight();
+    while (levels > 0 && ((w >> levels) < 16 || (h >> levels) < 16)) --levels;
+    return levels > 0 ? static_cast<uint8_t>(levels) : 0;
+  }
+
   bool MaybeRewriteImageObject(CPDF_ImageObject* image_obj,
-                                const CFX_Matrix& holder_ctm) {
+                                const CFX_Matrix& holder_ctm,
+                                bool allow_clip) {
     RetainPtr<CPDF_Image> image = image_obj->GetImage();
     if (!image) return false;
 
-    last_rewrite_needs_regen_ = true;
+    if (image->IsInline()) return false;
+    const uint32_t image_objnum =
+        image->GetStream() ? image->GetStream()->GetObjNum() : 0;
+    if (!image_objnum) return false;
 
     {
       const int gw = image->GetPixelWidth();
@@ -3764,7 +4078,6 @@ class HyperImageRewrite {
       if (gw <= 0 || gh <= 0 ||
           static_cast<int64_t>(gw) * static_cast<int64_t>(gh) >
               kMaxRewritePixels) {
-        last_rewrite_needs_regen_ = false;
         return false;
       }
     }
@@ -3803,7 +4116,58 @@ class HyperImageRewrite {
       }
     }
 
-    RetainPtr<CFX_DIBBase> source = image->LoadDIBBase();
+    const int dict_w = image->GetPixelWidth();
+    const int dict_h = image->GetPixelHeight();
+    const CFX_Matrix& m = image_obj->matrix();
+    const CFX_Matrix on_page = m * holder_ctm;
+    const float drawn_w_pts = std::max(std::hypot(on_page.a, on_page.b), 1.0f);
+    const float drawn_h_pts = std::max(std::hypot(on_page.c, on_page.d), 1.0f);
+
+    bool image_upscaled = drawn_w_pts > static_cast<float>(dict_w) + 1.0f ||
+                          drawn_h_pts > static_cast<float>(dict_h) + 1.0f;
+    float effective_dpi =
+        std::max(static_cast<float>(dict_w) * 72.0f / drawn_w_pts,
+                 static_cast<float>(dict_h) * 72.0f / drawn_h_pts);
+
+    HyperCropPlan crop;
+    if (opts_.clip_images && allow_clip && !preserved_smask_ref &&
+        !preserved_mask_ref)
+      crop = HyperPlanCrop(m, image_obj->clip_path());
+
+    const bool use_census =
+        census_complete_ && image_census_.count(image_objnum) != 0;
+    if (!crop.valid && use_census) {
+      if (processed_images_.count(image_objnum)) return false;
+      processed_images_.insert(image_objnum);
+      const ImageCensus& ic = image_census_[image_objnum];
+      effective_dpi = std::min(effective_dpi, ic.min_dpi);
+      image_upscaled = image_upscaled || ic.upscaled;
+    }
+
+    int reduce = 1;
+    RetainPtr<CFX_DIBBase> source;
+    if (const uint8_t levels =
+            ReducedJpxLevels(image, img_dict.Get(), effective_dpi)) {
+      RetainPtr<CPDF_DIB> dib = image->CreateNewDIB();
+      if (dib && dib->LoadReduced(levels) && dib->GetWidth() > 0) {
+
+        int applied = 0;
+        while (applied < levels &&
+               (image->GetPixelWidth() >> applied) != dib->GetWidth()) {
+          ++applied;
+        }
+        if ((image->GetPixelWidth() >> applied) == dib->GetWidth()) {
+          source = std::move(dib);
+          reduce = 1 << applied;
+        }
+      }
+    }
+    if (source && source->GetBPP() <= 1) {
+
+      source = nullptr;
+      reduce = 1;
+    }
+    if (!source) source = image->LoadDIBBase();
     if (!source) return false;
 
     if (source->GetBPP() > 1) {
@@ -3823,7 +4187,6 @@ class HyperImageRewrite {
            opts_.image_encoding == HYPERC_IMAGE_ENCODING_PRESERVE) &&
           HyperEmitJbig2Stencil(doc_, image, source);
       if (stencil_ok) {
-        last_rewrite_needs_regen_ = false;
         return true;
       }
       return false;
@@ -3882,14 +4245,9 @@ class HyperImageRewrite {
       const bool large = px >= 500000;
       const bool dense = px > 0 && enc * 5 >= px * 2;
 
-      const CFX_Matrix on_page_idx = image_obj->matrix() * holder_ctm;
-      const float wlen_idx = std::max(std::hypot(on_page_idx.a, on_page_idx.b), 1.0f);
-      const float hlen_idx = std::max(std::hypot(on_page_idx.c, on_page_idx.d), 1.0f);
-      const float edpi_idx = std::max(src_w * 72.0f / wlen_idx,
-                                      src_h * 72.0f / hlen_idx);
       const bool hi_dpi =
           opts_.image_max_dpi > 0 &&
-          edpi_idx > static_cast<float>(opts_.image_max_dpi) * 1.5f;
+          effective_dpi > static_cast<float>(opts_.image_max_dpi) * 1.5f;
 
       const bool substantial = px >= 30000;
       if (!large && !dense && !hi_dpi && !substantial)
@@ -3904,19 +4262,6 @@ class HyperImageRewrite {
 
     const bool source_photographic =
         source_is_indexed && HyperIndexedIsPhotographic(source.Get());
-
-    const CFX_Matrix& m = image_obj->matrix();
-    const CFX_Matrix on_page = m * holder_ctm;
-
-    const float drawn_w_pts = std::max(std::hypot(on_page.a, on_page.b), 1.0f);
-    const float drawn_h_pts = std::max(std::hypot(on_page.c, on_page.d), 1.0f);
-    const float dpi_x = static_cast<float>(src_w) * 72.0f / drawn_w_pts;
-    const float dpi_y = static_cast<float>(src_h) * 72.0f / drawn_h_pts;
-    const float effective_dpi = std::max(dpi_x, dpi_y);
-
-    const bool image_upscaled =
-        drawn_w_pts > static_cast<float>(src_w) + 1.0f ||
-        drawn_h_pts > static_cast<float>(src_h) + 1.0f;
 
     int class_max_dpi = opts_.image_max_dpi;
     {
@@ -3939,11 +4284,14 @@ class HyperImageRewrite {
     int target_h = src_h;
     bool needs_resize = false;
 
+    float resize_scale = 1.0f;
     if (max_dpi > 0.0f && effective_dpi > threshold_dpi &&
         source->GetBPP() > 1) {
-      const float scale = max_dpi / effective_dpi;
-      target_w = std::max(1, static_cast<int>(std::round(src_w * scale)));
-      target_h = std::max(1, static_cast<int>(std::round(src_h * scale)));
+      resize_scale = max_dpi / effective_dpi;
+      target_w = std::max(
+          1, static_cast<int>(std::round(src_w * reduce * resize_scale)));
+      target_h = std::max(
+          1, static_cast<int>(std::round(src_h * reduce * resize_scale)));
       needs_resize = true;
     }
 
@@ -3952,7 +4300,6 @@ class HyperImageRewrite {
                                   target_h, spot_ncomp)) {
         image_obj->CalcBoundingBox();
         image_obj->SetDirty(true);
-        last_rewrite_needs_regen_ = false;
         return true;
       }
       return false;
@@ -3970,26 +4317,21 @@ class HyperImageRewrite {
         opts_.image_color_target == HYPERC_COLOR_TARGET_CMYK &&
         source->GetBPP() >= 24;
 
-    CFX_Matrix effective_matrix = m;
     bool was_clipped = false;
-    RetainPtr<CFX_DIBitmap> clipped_source;
-    if (opts_.clip_images) {
+    double crop_x[6] = {1, 0, 0, 1, 0, 0};
+    if (crop.valid) {
+      RetainPtr<CFX_DIBitmap> cropped = HyperCropBitmap(source, crop, crop_x);
+      if (!cropped)
+        return MaybeRewriteImageObject(image_obj, holder_ctm,  false);
+      source = std::move(cropped);
+      was_clipped = true;
+      if (needs_resize) {
 
-      auto src_copy = pdfium::MakeRetain<CFX_DIBitmap>();
-      if (src_copy->Copy(source)) {
-
-        source = src_copy;
-        clipped_source = HyperClipBitmapToVisible(
-            src_copy, m, image_obj->clip_path(), &effective_matrix);
-        if (clipped_source && clipped_source.Get() != src_copy.Get()) {
-          was_clipped = true;
-        } else {
-          clipped_source = nullptr;
-        }
+        target_w = std::max(1, static_cast<int>(std::round(
+                                   source->GetWidth() * reduce * resize_scale)));
+        target_h = std::max(1, static_cast<int>(std::round(
+                                   source->GetHeight() * reduce * resize_scale)));
       }
-    }
-    if (was_clipped) {
-      source = clipped_source;
     }
 
     const bool only_color_complexity =
@@ -4047,7 +4389,8 @@ class HyperImageRewrite {
 
     if (needs_resize && !was_clipped && preserved_smask_ref) {
       if (RetainPtr<const CPDF_Object> resampled = HyperResampleSMask(
-              preserved_smask_ref.Get(), src_w, src_h, target_w, target_h)) {
+              preserved_smask_ref.Get(), src_w * reduce, src_h * reduce,
+              target_w, target_h)) {
         preserved_smask_ref = std::move(resampled);
       }
     }
@@ -4062,20 +4405,18 @@ class HyperImageRewrite {
       }
     }
 
-    uint32_t shared_objnum =
-        image && image->GetStream() ? image->GetStream()->GetObjNum() : 0;
-    auto rc_it = ref_count_.find(shared_objnum);
-    const bool stream_shared = shared_objnum != 0 &&
-                               rc_it != ref_count_.end() && rc_it->second > 1;
-    if (image && image->GetStream() &&
-        (was_clipped || (needs_grayscale && stream_shared))) {
+    if (was_clipped && image && image->GetStream()) {
       auto cow = pdfium::MakeRetain<CPDF_Image>(doc_);
       cow->SetImage(final_bitmap);
-      if (cow->GetStream()) {
-        image_obj->SetImage(cow);
-        image = std::move(cow);
-      }
-
+      RetainPtr<const CPDF_Stream> cs = cow->GetStream();
+      if (!cs) return false;
+      if (cs->GetObjNum() == 0) cow->ConvertStreamToIndirectObject();
+      cs = cow->GetStream();
+      if (!cs || cs->GetObjNum() == 0) return false;
+      image_obj->SetImage(cow);
+      image = std::move(cow);
+      last_cow_objnum_ = cs->GetObjNum();
+      std::memcpy(last_crop_x_, crop_x, sizeof(last_crop_x_));
     }
 
     auto reattach_masks = [&]() {
@@ -4094,9 +4435,6 @@ class HyperImageRewrite {
 
     if (opts_.image_color_target == HYPERC_COLOR_TARGET_CMYK &&
         final_bitmap && final_bitmap->GetBPP() >= 24) {
-      if (was_clipped) {
-        image_obj->SetImageMatrix(effective_matrix);
-      }
       if (HyperConvertAndEmitCmyk(doc_, image, final_bitmap)) {
         reattach_masks();
         image_obj->CalcBoundingBox();
@@ -4104,10 +4442,6 @@ class HyperImageRewrite {
         return true;
       }
 
-    }
-
-    if (was_clipped) {
-      image_obj->SetImageMatrix(effective_matrix);
     }
 
     if (needs_grayscale && (preserved_smask_ref || preserved_mask_ref)) {
@@ -4123,6 +4457,9 @@ class HyperImageRewrite {
 
     bool emitted = false;
     const int encoding = opts_.image_encoding;
+    const int threads = hyper_cs::ResolveThreadCount(opts_.threads);
+
+    std::vector<uint8_t> jpeg_cache;
 
     if (encoding == HYPERC_IMAGE_ENCODING_AUTO ||
         encoding == HYPERC_IMAGE_ENCODING_PRESERVE) {
@@ -4135,7 +4472,6 @@ class HyperImageRewrite {
           emitted = HyperTryEmitIndexed(doc_, image, final_bitmap,
                                        (opts_.pdfa_mode & 2) != 0);
 
-          if (emitted) last_rewrite_needs_regen_ = false;
         }
 
         if (!emitted && opts_.image_lossy_index > 0 &&
@@ -4145,8 +4481,8 @@ class HyperImageRewrite {
           emitted = HyperTryEmitLossyIndexed(
               doc_, image, final_bitmap,
               static_cast<double>(opts_.image_lossy_index), opts_.image_quality,
-              opts_.jpeg_subsample, (opts_.pdfa_mode & 2) != 0);
-          if (emitted) last_rewrite_needs_regen_ = false;
+              opts_.jpeg_subsample, (opts_.pdfa_mode & 2) != 0, &jpeg_cache,
+              threads);
         }
         if (!emitted && only_color_complexity) {
 
@@ -4161,7 +4497,6 @@ class HyperImageRewrite {
 
         if (HyperEmitLineArtCompete(image, final_bitmap, gray)) {
           emitted = true;
-          last_rewrite_needs_regen_ = false;
         } else {
           return false;
         }
@@ -4170,14 +4505,12 @@ class HyperImageRewrite {
       if (!emitted && final_bitmap->GetBPP() == 1) {
         pending_jbig2_.push_back({image, final_bitmap});
         emitted = true;
-
-        last_rewrite_needs_regen_ = false;
       }
 
       if (!emitted) {
         const bool transformed =
             needs_resize || needs_grayscale || was_clipped;
-        const bool cow_pointed = was_clipped || needs_grayscale;
+        const bool must_commit = was_clipped || needs_grayscale;
         if (!transformed && !HyperImageSourceIsLossy(image) &&
             !HyperImageSourceIsRawRecompressible(image) &&
             !source_photographic) {
@@ -4185,29 +4518,39 @@ class HyperImageRewrite {
           return false;
         }
         size_t budget = 0;
-        if (!cow_pointed) {
+        if (!must_commit) {
           RetainPtr<const CPDF_Stream> os = image->GetStream();
           if (os)
             budget = os->GetRawSize();
         }
+
+        std::unique_ptr<HyperJpxAsync> jpx_job;
+        if (opts_.image_prefer_jpx)
+          jpx_job = std::make_unique<HyperJpxAsync>(final_bitmap,
+                                                    opts_.image_quality, threads);
         emitted = HyperEmitJpeg(doc_, image, final_bitmap, opts_.image_quality,
                                  opts_.jpeg_subsample,
                                  opts_.jpeg_optimized_huffman != 0,
-                                 opts_.jpeg_progressive != 0, budget);
+                                 opts_.jpeg_progressive != 0, budget,
+                                 &jpeg_cache);
 
-        if (opts_.image_prefer_jpx) {
-          size_t jpx_budget =
-              (emitted && image->GetStream()) ? image->GetStream()->GetRawSize()
-                                              : budget;
-          if (HyperEmitJpeg2000(doc_, image, final_bitmap, opts_.image_quality,
-                                jpx_budget))
-            emitted = true;
+        if (jpx_job) {
+
+          PendingJpx pj;
+          pj.image = image;
+          pj.bitmap = final_bitmap;
+          pj.job = std::move(jpx_job);
+          pj.budget = (emitted && image->GetStream())
+                          ? image->GetStream()->GetRawSize()
+                          : budget;
+          pj.smask = preserved_smask_ref;
+          pj.mask = preserved_mask_ref;
+          DeferJpx(std::move(pj));
+
+          emitted = true;
         }
 
-        if (emitted && !cow_pointed) {
-          last_rewrite_needs_regen_ = false;
-        }
-        if (!emitted && !cow_pointed) {
+        if (!emitted && !must_commit) {
 
           return false;
         }
@@ -4219,15 +4562,15 @@ class HyperImageRewrite {
                                opts_.jpeg_progressive != 0);
     } else if (encoding == HYPERC_IMAGE_ENCODING_JPEG2000) {
       emitted = HyperEmitJpeg2000(doc_, image, final_bitmap,
-                                   opts_.image_quality);
+                                   opts_.image_quality, 0, threads);
     } else if (encoding == HYPERC_IMAGE_ENCODING_FLATE) {
 
-      image->SetImage(final_bitmap);
-      emitted = true;
+      emitted = HyperOverwriteWithSetImage(doc_, image, final_bitmap);
     }
     if (!emitted) {
 
-      image->SetImage(final_bitmap);
+      if (!HyperOverwriteWithSetImage(doc_, image, final_bitmap))
+        return false;
     }
     reattach_masks();
     image_obj->CalcBoundingBox();
@@ -4235,13 +4578,46 @@ class HyperImageRewrite {
     return true;
   }
 
+  struct PendingJpx {
+    RetainPtr<CPDF_Image> image;
+    RetainPtr<CFX_DIBitmap> bitmap;
+    std::unique_ptr<HyperJpxAsync> job;
+    size_t budget = 0;
+    RetainPtr<const CPDF_Object> smask;
+    RetainPtr<const CPDF_Object> mask;
+  };
+  std::deque<PendingJpx> pending_jpx_;
+
+  static constexpr size_t kMaxPendingJpx = 2;
+
+  void DeferJpx(PendingJpx pj) {
+    pending_jpx_.push_back(std::move(pj));
+    while (pending_jpx_.size() > kMaxPendingJpx) ResolveOldestJpx();
+  }
+
+  void ResolveOldestJpx() {
+    PendingJpx pj = std::move(pending_jpx_.front());
+    pending_jpx_.pop_front();
+    if (!HyperCommitJpx(doc_, pj.image, pj.bitmap, pj.job->Take(), pj.budget))
+      return;
+
+    RetainPtr<const CPDF_Stream> cs = pj.image->GetStream();
+    CPDF_Dictionary* rd =
+        cs ? const_cast<CPDF_Stream*>(cs.Get())->GetMutableDict().Get() : nullptr;
+    if (!rd) return;
+    if (pj.smask && !rd->KeyExist("SMask")) rd->SetFor("SMask", pj.smask->Clone());
+    if (pj.mask && !rd->KeyExist("Mask")) rd->SetFor("Mask", pj.mask->Clone());
+  }
+
+  void ResolveAllJpx() {
+    while (!pending_jpx_.empty()) ResolveOldestJpx();
+  }
+
   struct PendingJbig2 {
     RetainPtr<CPDF_Image> image;
     RetainPtr<CFX_DIBitmap> bitmap;
   };
   std::vector<PendingJbig2> pending_jbig2_;
-
-  bool last_rewrite_needs_regen_ = true;
 
   std::vector<double> Jbig2InkGrid(const CFX_DIBBase* b) {
 
@@ -4586,45 +4962,371 @@ class HyperImageRewrite {
     HyperEmitMonochromeCCITT(doc_, p.image, p.bitmap);
   }
 
-  std::unordered_map<uint32_t, int> ref_count_;
+  bool census_complete_ = false;
+  std::vector<uint8_t> page_has_images_;
+  std::unordered_map<uint32_t, int> form_draws_;
+  std::unordered_map<uint32_t, int> incoming_refs_;
+  struct ImageCensus {
+    float min_dpi = 0;
+    bool upscaled = false;
+  };
+  std::unordered_map<uint32_t, ImageCensus> image_census_;
 
-  std::vector<CPDF_Form*> pending_form_regens_;
+  std::unordered_set<uint32_t> processed_images_;
+
+  uint32_t last_cow_objnum_ = 0;
+  double last_crop_x_[6] = {1, 0, 0, 1, 0, 0};
+
+  enum class MaskClass : uint8_t { kSoft, kOpaque, kBinary };
+  std::unordered_map<uint32_t, MaskClass> mask_class_;
+  std::unordered_map<uint32_t, uint32_t> stencil_for_mask_;
 
   static constexpr size_t kMaxImagesToRewrite = 5000;
 
-  void BuildImageRefCensus() {
-    ref_count_.clear();
-
-    std::function<void(CPDF_PageObjectHolder*)> count_holder =
-        [&](CPDF_PageObjectHolder* holder) {
-          if (!holder) return;
-          const size_t n = holder->GetActivePageObjectCount();
-          for (size_t i = 0; i < n; ++i) {
-            CPDF_PageObject* obj = holder->GetPageObjectByIndex(i);
-            if (!obj) continue;
-            if (obj->IsImage()) {
-              CPDF_ImageObject* io = obj->AsImage();
-              RetainPtr<CPDF_Image> img = io ? io->GetImage() : nullptr;
-              RetainPtr<const CPDF_Stream> st = img ? img->GetStream() : nullptr;
-              if (st && st->GetObjNum() != 0)
-                ref_count_[st->GetObjNum()]++;
-            } else if (obj->IsForm()) {
-              CPDF_FormObject* fo = obj->AsForm();
-              if (fo && fo->form())
-                count_holder(fo->form());
-            }
+  void CountIncomingRefs() {
+    incoming_refs_.clear();
+    std::function<void(const CPDF_Object*, int)> visit =
+        [&](const CPDF_Object* o, int depth) {
+          if (!o || depth > 64) return;
+          if (const CPDF_Reference* r = o->AsReference()) {
+            int& n = incoming_refs_[r->GetRefObjNum()];
+            if (n < 2) ++n;
+            return;
+          }
+          if (const CPDF_Dictionary* d = o->AsDictionary()) {
+            CPDF_DictionaryLocker locker(d);
+            for (const auto& it : locker) visit(it.second.Get(), depth + 1);
+          } else if (const CPDF_Array* a = o->AsArray()) {
+            CPDF_ArrayLocker locker(a);
+            for (const auto& e : locker) visit(e.Get(), depth + 1);
+          } else if (const CPDF_Stream* st = o->AsStream()) {
+            RetainPtr<const CPDF_Dictionary> sd = st->GetDict();
+            visit(sd.Get(), depth + 1);
           }
         };
+    const uint32_t last = doc_->GetLastObjNum();
+    for (uint32_t i = 1; i <= last; ++i) {
+      RetainPtr<const CPDF_Object> o = doc_->GetOrParseIndirectObject(i);
+      if (o) visit(o.Get(), 0);
+    }
+
+    if (const CPDF_Dictionary* root = doc_->GetRoot()) {
+      int& n = incoming_refs_[root->GetObjNum()];
+      if (n < 2) ++n;
+    }
+  }
+
+  struct CensusDo {
+    std::string name;
+    double ctm[6];
+  };
+  struct CensusEvents {
+    bool ok = false;
+    std::vector<CensusDo> dos;
+  };
+
+  static bool CensusEventsOf(pdfium::span<const uint8_t> content,
+                             CensusEvents* out) {
+    out->dos.clear();
+    bool inline_image = false;
+    const bool ok = hyper_cs::WalkDoOperators(
+        content.data(), content.size(),
+        [&](const hyper_cs::DoEvent& ev) {
+          CensusDo d;
+          d.name.assign(ev.name.data(), ev.name.size());
+          std::memcpy(d.ctm, ev.ctm, sizeof(d.ctm));
+          out->dos.push_back(std::move(d));
+        },
+        &inline_image);
+    out->ok = ok && !inline_image;
+    return out->ok;
+  }
+
+  static RetainPtr<const CPDF_Stream> CensusLookup(const CPDF_Dictionary* res,
+                                                   const CPDF_Dictionary* page_res,
+                                                   const std::string& name) {
+    RetainPtr<const CPDF_Dictionary> x = res ? res->GetDictFor("XObject") : nullptr;
+    if (!x && res != page_res && page_res) x = page_res->GetDictFor("XObject");
+    if (!x) return nullptr;
+    RetainPtr<const CPDF_Object> o =
+        x->GetDirectObjectFor(ByteStringView(name.c_str()));
+    return o ? pdfium::WrapRetain(o->AsStream()) : nullptr;
+  }
+
+  void BuildCensus() {
+    census_complete_ = true;
+    page_has_images_.clear();
+    form_draws_.clear();
+    image_census_.clear();
+    processed_images_.clear();
+    CountIncomingRefs();
+    std::unordered_map<uint32_t, CensusEvents> form_events;
+    size_t budget = 4000000;
+    std::vector<uint32_t> stack;
+    std::function<bool(const std::vector<CensusDo>&, const double*,
+                       const CPDF_Dictionary*, const CPDF_Dictionary*)>
+        replay = [&](const std::vector<CensusDo>& dos, const double* outer,
+                     const CPDF_Dictionary* res,
+                     const CPDF_Dictionary* page_res) -> bool {
+      bool any_image = false;
+      for (const CensusDo& d : dos) {
+        if (budget == 0) {
+          census_complete_ = false;
+          return true;
+        }
+        --budget;
+        double full[6];
+        HyperConcatMatrix(d.ctm, outer, full);
+        RetainPtr<const CPDF_Stream> xs = CensusLookup(res, page_res, d.name);
+        RetainPtr<const CPDF_Dictionary> xd = xs ? xs->GetDict() : nullptr;
+        if (!xd) continue;
+        const ByteString subtype = xd->GetByteStringFor("Subtype");
+        if (subtype == "Image") {
+          any_image = true;
+          const uint32_t objnum = xs->GetObjNum();
+          const int w = xd->GetIntegerFor("Width");
+          const int h = xd->GetIntegerFor("Height");
+          if (!objnum || w <= 0 || h <= 0) continue;
+          const double wlen = std::max(std::hypot(full[0], full[1]), 1.0);
+          const double hlen = std::max(std::hypot(full[2], full[3]), 1.0);
+          const float dpi = static_cast<float>(
+              std::max(w * 72.0 / wlen, h * 72.0 / hlen));
+          auto [it, fresh] = image_census_.try_emplace(objnum);
+          if (fresh || dpi < it->second.min_dpi) it->second.min_dpi = dpi;
+          if (wlen > w + 1.0 || hlen > h + 1.0) it->second.upscaled = true;
+        } else if (subtype == "Form") {
+          const uint32_t objnum = xs->GetObjNum();
+          if (objnum) {
+            int& n = form_draws_[objnum];
+            if (n < 2) ++n;
+          }
+
+          if (stack.size() >= 40 ||
+              (objnum && std::find(stack.begin(), stack.end(), objnum) !=
+                             stack.end()))
+            continue;
+          double fm[6] = {1, 0, 0, 1, 0, 0};
+          if (RetainPtr<const CPDF_Array> ma = xd->GetArrayFor("Matrix")) {
+            if (ma->size() == 6)
+              for (size_t k = 0; k < 6; ++k) fm[k] = ma->GetFloatAt(k);
+          }
+          double inner[6];
+          HyperConcatMatrix(fm, full, inner);
+          RetainPtr<const CPDF_Dictionary> own = xd->GetDictFor("Resources");
+          const CPDF_Dictionary* fres = own ? own.Get() : res;
+          CensusEvents* ev = nullptr;
+          auto fit = form_events.find(objnum);
+          if (objnum && fit != form_events.end()) {
+            ev = &fit->second;
+          } else {
+            CensusEvents fresh_ev;
+            auto acc = pdfium::MakeRetain<CPDF_StreamAcc>(xs);
+            acc->LoadAllDataFiltered();
+            CensusEventsOf(acc->GetSpan(), &fresh_ev);
+            ev = &(form_events[objnum] = std::move(fresh_ev));
+          }
+          if (!ev->ok) {
+            census_complete_ = false;
+            any_image = true;
+            continue;
+          }
+          stack.push_back(objnum);
+          if (replay(ev->dos, inner, fres, page_res)) any_image = true;
+          stack.pop_back();
+        }
+      }
+      return any_image;
+    };
     const int page_count = doc_->GetPageCount();
+    page_has_images_.assign(static_cast<size_t>(std::max(page_count, 0)), 1);
     for (int p = 0; p < page_count; ++p) {
       RetainPtr<CPDF_Dictionary> page_dict = doc_->GetMutablePageDictionary(p);
-      if (!page_dict)
-        continue;
-      if (!HyperIsLoadablePageDict(page_dict.Get())) continue;
+      if (!page_dict || !HyperIsLoadablePageDict(page_dict.Get())) continue;
       auto page = pdfium::MakeRetain<CPDF_Page>(doc_, page_dict);
-      page->ParseContent();
-      count_holder(page.Get());
+      RetainPtr<const CPDF_Dictionary> res = page->GetResources();
+
+      DataVector<uint8_t> content;
+      RetainPtr<const CPDF_Object> c = page_dict->GetDirectObjectFor("Contents");
+      auto append = [&](RetainPtr<const CPDF_Stream> st) {
+        if (!st) return;
+        auto acc = pdfium::MakeRetain<CPDF_StreamAcc>(std::move(st));
+        acc->LoadAllDataFiltered();
+        pdfium::span<const uint8_t> sp = acc->GetSpan();
+        content.insert(content.end(), sp.begin(), sp.end());
+        content.push_back('\n');
+      };
+      if (c && c->AsStream()) {
+        append(pdfium::WrapRetain(c->AsStream()));
+      } else if (const CPDF_Array* ca = c ? c->AsArray() : nullptr) {
+        for (size_t k = 0; k < ca->size(); ++k) append(ca->GetStreamAt(k));
+      }
+      CensusEvents ev;
+      if (!CensusEventsOf(content, &ev)) {
+        census_complete_ = false;
+        continue;
+      }
+      const double identity[6] = {1, 0, 0, 1, 0, 0};
+      page_has_images_[static_cast<size_t>(p)] =
+          replay(ev.dos, identity, res.Get(), res.Get()) ? 1 : 0;
     }
+  }
+
+  void SimplifySoftMask(CPDF_ImageObject* image_obj) {
+    RetainPtr<CPDF_Image> image = image_obj ? image_obj->GetImage() : nullptr;
+    if (!image || image->IsInline()) return;
+    RetainPtr<const CPDF_Stream> ist = image->GetStream();
+    const uint32_t objnum = ist ? ist->GetObjNum() : 0;
+    if (!objnum) return;
+    RetainPtr<CPDF_Stream> base = ToStream(doc_->GetMutableIndirectObject(objnum));
+    RetainPtr<CPDF_Dictionary> bd = base ? base->GetMutableDict() : nullptr;
+    if (!bd) return;
+    RetainPtr<const CPDF_Object> sref = bd->GetObjectFor("SMask");
+    const CPDF_Reference* sr = sref ? sref->AsReference() : nullptr;
+    if (!sr) return;
+    if (bd->GetIntegerFor("SMaskInData") != 0 || bd->GetBooleanFor("ImageMask", false))
+      return;
+    const uint32_t mobj = sr->GetRefObjNum();
+    MaskClass cls;
+    auto cached = mask_class_.find(mobj);
+    if (cached != mask_class_.end()) {
+      cls = cached->second;
+    } else {
+      cls = ClassifySoftMask(mobj);
+      mask_class_[mobj] = cls;
+    }
+    if (cls == MaskClass::kOpaque) {
+      bd->RemoveFor("SMask");
+      return;
+    }
+    if (cls != MaskClass::kBinary ||
+        opts_.image_encoding != HYPERC_IMAGE_ENCODING_AUTO ||
+        bd->KeyExist("Mask"))
+      return;
+    uint32_t stencil = 0;
+    auto st = stencil_for_mask_.find(mobj);
+    if (st != stencil_for_mask_.end()) {
+      stencil = st->second;
+    } else {
+      stencil = BuildStencilFromSoftMask(mobj);
+      stencil_for_mask_[mobj] = stencil;
+    }
+    if (!stencil) return;
+    bd->RemoveFor("SMask");
+    bd->SetNewFor<CPDF_Reference>("Mask", doc_, stencil);
+  }
+
+  bool ReadSoftMaskSamples(uint32_t mobj, int* w, int* h,
+                           std::vector<uint8_t>* alpha01,
+                           bool* all_opaque, bool* binary) {
+    RetainPtr<const CPDF_Stream> ms =
+        ToStream(doc_->GetOrParseIndirectObject(mobj));
+    RetainPtr<const CPDF_Dictionary> md = ms ? ms->GetDict() : nullptr;
+    if (!md || md->KeyExist("Matte")) return false;
+    const int bpc = md->GetIntegerFor("BitsPerComponent");
+    *w = md->GetIntegerFor("Width");
+    *h = md->GetIntegerFor("Height");
+    if ((bpc != 1 && bpc != 2 && bpc != 4 && bpc != 8 && bpc != 16) ||
+        *w < 1 || *h < 1 ||
+        static_cast<int64_t>(*w) * *h > 256LL * 1024 * 1024)
+      return false;
+    bool inverted = false;
+    if (RetainPtr<const CPDF_Array> dec = md->GetArrayFor("Decode")) {
+      if (dec->size() != 2) return false;
+      const float d0 = dec->GetFloatAt(0), d1 = dec->GetFloatAt(1);
+      if (d0 == 0 && d1 == 1) inverted = false;
+      else if (d0 == 1 && d1 == 0) inverted = true;
+      else return false;
+    }
+
+    if (RetainPtr<const CPDF_Object> f = md->GetDirectObjectFor("Filter")) {
+      auto generic = [](const ByteString& n) {
+        return n == "FlateDecode" || n == "LZWDecode" || n == "ASCII85Decode" ||
+               n == "ASCIIHexDecode" || n == "RunLengthDecode" || n == "Fl" ||
+               n == "LZW" || n == "A85" || n == "AHx" || n == "RL";
+      };
+      if (f->IsName()) {
+        if (!generic(f->GetString())) return false;
+      } else if (const CPDF_Array* fa = f->AsArray()) {
+        for (size_t k = 0; k < fa->size(); ++k) {
+          RetainPtr<const CPDF_Object> e = fa->GetDirectObjectAt(k);
+          if (!e || !e->IsName() || !generic(e->GetString())) return false;
+        }
+      } else {
+        return false;
+      }
+    }
+    auto acc = pdfium::MakeRetain<CPDF_StreamAcc>(ms);
+    acc->LoadAllDataFiltered();
+    pdfium::span<const uint8_t> data = acc->GetSpan();
+    const size_t row_bytes = (static_cast<size_t>(*w) * bpc + 7) / 8;
+    if (data.size() < row_bytes * static_cast<size_t>(*h)) return false;
+    const unsigned maxv = (1u << bpc) - 1;
+    const unsigned opaque_raw = inverted ? 0 : maxv;
+    *all_opaque = true;
+    *binary = true;
+    if (alpha01) alpha01->assign(static_cast<size_t>(*w) * *h, 0);
+    for (int y = 0; y < *h; ++y) {
+      const uint8_t* row = data.data() + row_bytes * static_cast<size_t>(y);
+      for (int x = 0; x < *w; ++x) {
+        unsigned s;
+        if (bpc == 8) {
+          s = row[x];
+        } else if (bpc == 16) {
+          s = (static_cast<unsigned>(row[2 * x]) << 8) | row[2 * x + 1];
+        } else {
+          const size_t bit = static_cast<size_t>(x) * bpc;
+          s = (row[bit / 8] >> (8 - bpc - (bit % 8))) & maxv;
+        }
+        if (s != opaque_raw) *all_opaque = false;
+        if (s != 0 && s != maxv) {
+          *binary = false;
+          if (!alpha01) return true;
+        }
+        if (alpha01) (*alpha01)[static_cast<size_t>(y) * *w + x] = s == opaque_raw;
+      }
+      if (!*binary && !*all_opaque) return true;
+    }
+    return true;
+  }
+
+  MaskClass ClassifySoftMask(uint32_t mobj) {
+    int w = 0, h = 0;
+    bool opaque = false, binary = false;
+    if (!ReadSoftMaskSamples(mobj, &w, &h, nullptr, &opaque, &binary))
+      return MaskClass::kSoft;
+    if (opaque) return MaskClass::kOpaque;
+    return binary ? MaskClass::kBinary : MaskClass::kSoft;
+  }
+
+  uint32_t BuildStencilFromSoftMask(uint32_t mobj) {
+    int w = 0, h = 0;
+    bool opaque = false, binary = false;
+    std::vector<uint8_t> alpha;
+    if (!ReadSoftMaskSamples(mobj, &w, &h, &alpha, &opaque, &binary) || !binary)
+      return 0;
+    const size_t row_bytes = (static_cast<size_t>(w) + 7) / 8;
+    std::vector<uint8_t> bits(row_bytes * static_cast<size_t>(h), 0);
+    for (int y = 0; y < h; ++y) {
+      for (int x = 0; x < w; ++x) {
+        if (!alpha[static_cast<size_t>(y) * w + x])
+          bits[row_bytes * y + x / 8] |= static_cast<uint8_t>(0x80u >> (x % 8));
+      }
+    }
+    DataVector<uint8_t> flate = FlateModule::Encode(bits);
+    if (flate.empty()) return 0;
+    auto dict = doc_->New<CPDF_Dictionary>();
+    dict->SetNewFor<CPDF_Name>("Type", "XObject");
+    dict->SetNewFor<CPDF_Name>("Subtype", "Image");
+    dict->SetNewFor<CPDF_Number>("Width", w);
+    dict->SetNewFor<CPDF_Number>("Height", h);
+    dict->SetNewFor<CPDF_Boolean>("ImageMask", true);
+    dict->SetNewFor<CPDF_Number>("BitsPerComponent", 1);
+    dict->SetNewFor<CPDF_Name>("Filter", "FlateDecode");
+    RetainPtr<const CPDF_Stream> ms = ToStream(doc_->GetOrParseIndirectObject(mobj));
+    if (ms && ms->GetDict() && ms->GetDict()->GetBooleanFor("Interpolate", false))
+      dict->SetNewFor<CPDF_Boolean>("Interpolate", true);
+    auto ns = doc_->NewIndirect<CPDF_Stream>(std::move(flate), std::move(dict));
+    return ns ? ns->GetObjNum() : 0;
   }
 
   CPDF_Document* doc_;
@@ -4635,6 +5337,8 @@ class HyperImageRewrite {
 class HyperMrcEncoder {
 
   static constexpr double kMrcMaxPreviewMad = 12.0;
+
+  static constexpr double kMrcMaxInkLoss = 0.10;
 
  public:
   HyperMrcEncoder(CPDF_Document* doc, const CompressOptions& opts)
@@ -4655,6 +5359,7 @@ class HyperMrcEncoder {
       RetainPtr<CPDF_Dictionary> page_dict =
           doc_->GetMutablePageDictionary(page_index);
       if (!page_dict) continue;
+
       if (!HyperIsLoadablePageDict(page_dict.Get())) continue;
       auto page = pdfium::MakeRetain<CPDF_Page>(doc_, page_dict);
       page->ParseContent();
@@ -4679,11 +5384,17 @@ class HyperMrcEncoder {
         std::vector<uint8_t> post =
             HyperRenderPreviewGray(doc_, page_index, &qw, &qh);
         const double mad = HyperPreviewMeanAbsDiff(pre, pw, ph, post, qw, qh);
+        const double ink_loss =
+            HyperPreviewInkLoss(pre, pw, ph, post, qw, qh);
         if (getenv("HYPER_MRC_DEBUG"))
-          fprintf(stderr, "[mrc] page %d preview mad=%.2f (max %.1f)\n",
-                  page_index, mad, kMrcMaxPreviewMad);
+          fprintf(stderr,
+                  "[mrc] page %d preview mad=%.2f (max %.1f) ink loss=%.3f "
+                  "(max %.2f)\n",
+                  page_index, mad, kMrcMaxPreviewMad, ink_loss,
+                  kMrcMaxInkLoss);
 
-        if ((mad > kMrcMaxPreviewMad || pre.empty()) &&
+        if ((mad > kMrcMaxPreviewMad || ink_loss > kMrcMaxInkLoss ||
+             pre.empty()) &&
             !getenv("HYPER_MRC_NO_VERIFY")) {
           HyperRestoreRegenSnapshot(doc_, snap);
           if (getenv("HYPER_MRC_DEBUG"))
@@ -4729,19 +5440,28 @@ class HyperMrcEncoder {
   bool RewritePageAsMrc(CPDF_Page* page) {
 
     CPDF_ImageObject* image_obj = nullptr;
-    const size_t obj_count = page->GetActivePageObjectCount();
+    float best_area = 0.0f;
+    const size_t obj_count = page->GetPageObjectCount();
     for (size_t i = 0; i < obj_count; ++i) {
       CPDF_PageObject* obj = page->GetPageObjectByIndex(i);
-      if (obj && obj->IsImage()) {
-        image_obj = obj->AsImage();
-        if (image_obj) break;
+      if (!obj || !obj->IsActive() || !obj->IsImage()) continue;
+      CPDF_ImageObject* io = obj->AsImage();
+      RetainPtr<CPDF_Image> img = io ? io->GetImage() : nullptr;
+      if (!img || img->IsMask()) continue;
+      RetainPtr<const CPDF_Dictionary> d = img->GetDict();
+      if (!d || d->KeyExist("SMask") || d->KeyExist("Mask")) continue;
+      const CFX_FloatRect r = io->GetRect();
+      const float area = r.Width() * r.Height();
+      if (area > best_area) {
+        best_area = area;
+        image_obj = io;
       }
     }
     auto mrc_dbg = [](const char* why) {
       if (getenv("HYPER_MRC_DEBUG")) fprintf(stderr, "[mrc] decline: %s\n", why);
       return false;
     };
-    if (!image_obj) return mrc_dbg("no image object");
+    if (!image_obj) return mrc_dbg("no opaque image object");
     RetainPtr<CPDF_Image> src_image = image_obj->GetImage();
     if (!src_image) return mrc_dbg("no CPDF_Image");
     RetainPtr<CFX_DIBBase> src_dib = src_image->LoadDIBBase();
@@ -5459,10 +6179,18 @@ class HyperMrcEncoder {
     fg_obj->CalcBoundingBox();
     fg_obj->SetDirty(true);
 
+    size_t slot = page->GetPageObjectCount();
+    for (size_t i = 0; i < page->GetPageObjectCount(); ++i) {
+      if (page->GetPageObjectByIndex(i) == orig_image_obj) {
+        slot = i;
+        break;
+      }
+    }
+    if (slot == page->GetPageObjectCount()) return false;
     std::unique_ptr<CPDF_PageObject> removed =
         page->RemovePageObject(orig_image_obj);
     (void)removed;
-    page->AppendPageObject(std::move(bg_obj));
+    page->InsertPageObjectAtIndex(slot++, std::move(bg_obj));
     if (bg_photo_image) {
 
       auto bgp_obj = std::make_unique<CPDF_ImageObject>();
@@ -5470,9 +6198,9 @@ class HyperMrcEncoder {
       bgp_obj->SetImageMatrix(m);
       bgp_obj->CalcBoundingBox();
       bgp_obj->SetDirty(true);
-      page->AppendPageObject(std::move(bgp_obj));
+      page->InsertPageObjectAtIndex(slot++, std::move(bgp_obj));
     }
-    page->AppendPageObject(std::move(fg_obj));
+    page->InsertPageObjectAtIndex(slot, std::move(fg_obj));
     return true;
   }
 
@@ -5990,39 +6718,9 @@ class HyperConvertToBitmap {
                         const CompressOptions& opts)
       : doc_(doc), fpdf_doc_(fpdf_doc), opts_(opts) {}
 
-  bool HolderHasTextObject(CPDF_PageObjectHolder* holder, int depth) {
-    if (!holder) return false;
-    if (depth > 16) return true;
-    const size_t obj_count = holder->GetActivePageObjectCount();
-    for (size_t i = 0; i < obj_count; ++i) {
-      CPDF_PageObject* obj = holder->GetPageObjectByIndex(i);
-      if (!obj) continue;
-      if (obj->IsText()) return true;
-      if (obj->IsForm()) {
-        CPDF_FormObject* form_obj = obj->AsForm();
-        if (form_obj && HolderHasTextObject(form_obj->form(), depth + 1)) {
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-
-  bool DocumentHasTextLayer() {
-    const int page_count = doc_->GetPageCount();
-    for (int i = 0; i < page_count; ++i) {
-      RetainPtr<CPDF_Dictionary> page_dict = doc_->GetMutablePageDictionary(i);
-      if (!page_dict) continue;
-      if (!HyperIsLoadablePageDict(page_dict.Get())) continue;
-      auto page = pdfium::MakeRetain<CPDF_Page>(doc_, page_dict);
-      page->ParseContent();
-      if (HolderHasTextObject(page.Get(), 0)) return true;
-    }
-    return false;
-  }
-
   void Run() {
     if (!opts_.convert_to_bitmap || !fpdf_doc_) return;
+
     if (opts_.convert_to_bitmap != HYPERC_CONVERT_TO_BITMAP_FORCE &&
         DocumentHasTextLayer()) {
       fprintf(stderr, "[hyper] rasterize skipped: document has a text layer\n");
@@ -6063,6 +6761,35 @@ class HyperConvertToBitmap {
   }
 
  private:
+  bool HolderHasTextObject(CPDF_PageObjectHolder* holder, int depth) {
+    if (!holder) return false;
+    if (depth > 16) return true;
+    const size_t obj_count = holder->GetActivePageObjectCount();
+    for (size_t i = 0; i < obj_count; ++i) {
+      CPDF_PageObject* obj = holder->GetPageObjectByIndex(i);
+      if (!obj) continue;
+      if (obj->IsText()) return true;
+      if (obj->IsForm()) {
+        CPDF_FormObject* form_obj = obj->AsForm();
+        if (form_obj && HolderHasTextObject(form_obj->form(), depth + 1)) return true;
+      }
+    }
+    return false;
+  }
+
+  bool DocumentHasTextLayer() {
+    const int page_count = doc_->GetPageCount();
+    for (int i = 0; i < page_count; ++i) {
+      RetainPtr<CPDF_Dictionary> page_dict = doc_->GetMutablePageDictionary(i);
+      if (!page_dict) continue;
+      if (!HyperIsLoadablePageDict(page_dict.Get())) continue;
+      auto page = pdfium::MakeRetain<CPDF_Page>(doc_, page_dict);
+      page->ParseContent();
+      if (HolderHasTextObject(page.Get(), 0)) return true;
+    }
+    return false;
+  }
+
   void RasterisePage(int page_index, int dpi, int quality) {
     FPDF_PAGE page = FPDF_LoadPage(fpdf_doc_, page_index);
     if (!page) return;
@@ -6073,6 +6800,7 @@ class HyperConvertToBitmap {
     const double height_pts = FPDF_GetPageHeightF(page);
     const double raw_w = width_pts * dpi / 72.0;
     const double raw_h = height_pts * dpi / 72.0;
+
     static constexpr double kMaxRasterPixels = 256.0 * 1024.0 * 1024.0;
     if (!(raw_w >= 1.0) || !(raw_h >= 1.0) ||
         raw_w * raw_h > kMaxRasterPixels) {
@@ -6217,6 +6945,11 @@ static bool FieldTreeHasCompletedSig(const CPDF_Dictionary* field,
   return false;
 }
 
+static bool HyperIsXmlMetadataStream(const CPDF_Dictionary* d) {
+  return d && d->GetNameFor("Type") == "Metadata" &&
+         d->GetNameFor("Subtype") == "XML";
+}
+
 static bool HyperStreamIsPlainFlateOrRaw(const CPDF_Dictionary* d) {
   if (!d)
     return true;
@@ -6243,7 +6976,9 @@ static void HyperMarkPdf20WithBrotliExtension(CPDF_Document* doc) {
   RetainPtr<CPDF_Dictionary> root = doc->GetMutableRoot();
   if (!root)
     return;
+
   root->SetNewFor<CPDF_Name>("Version", "2.0");
+
   RetainPtr<CPDF_Dictionary> ext = root->GetMutableDictFor("Extensions");
   if (!ext)
     ext = root->SetNewFor<CPDF_Dictionary>("Extensions");
@@ -6276,9 +7011,11 @@ static int HyperBrotliRecodeStreams(CPDF_Document* doc,
     RetainPtr<CPDF_Dictionary> d = stream->GetMutableDict();
     if (d) {
       const ByteString type = d->GetNameFor("Type");
-      if (type == "XRef" || type == "ObjStm" || type == "Metadata")
+      if (type == "XRef" || type == "ObjStm")
         continue;
       if (d->GetNameFor("Subtype") == "Image")
+        continue;
+      if (HyperIsXmlMetadataStream(d.Get()))
         continue;
     }
     if (!HyperStreamIsPlainFlateOrRaw(d.Get()))
@@ -6436,40 +7173,315 @@ void HyperCoalescePageContents(CPDF_Document* doc) {
   }
 }
 
-int HyperFlateUncompressedStreams(CPDF_Document* doc) {
+namespace {
+
+using HyperDeviceSpaces = std::map<std::string, int, std::less<>>;
+
+HyperDeviceSpaces HyperDeviceSpacesOf(const CPDF_Dictionary* res) {
+  HyperDeviceSpaces out;
+  if (!res)
+    return out;
+  RetainPtr<const CPDF_Dictionary> cs = res->GetDictFor("ColorSpace");
+  if (!cs)
+    return out;
+  CPDF_DictionaryLocker locker(cs);
+  for (const auto& it : locker) {
+    RetainPtr<const CPDF_Object> v = it.second ? it.second->GetDirect() : nullptr;
+    const CPDF_Name* n = v ? v->AsName() : nullptr;
+    if (!n)
+      continue;
+    const ByteString& name = n->GetString();
+    int ncomp = 0;
+    if (name == "DeviceGray") ncomp = 1;
+    else if (name == "DeviceRGB") ncomp = 3;
+    else if (name == "DeviceCMYK") ncomp = 4;
+    if (ncomp)
+      out[std::string(it.first.c_str(), it.first.GetLength())] = ncomp;
+  }
+  return out;
+}
+
+struct HyperContentInfo {
+  HyperDeviceSpaces dev;
+  bool conflict = false;
+};
+
+enum class HyperStreamJobKind : uint8_t { kContent, kReflate, kDeflate };
+
+struct HyperStreamJob {
+  uint32_t objnum = 0;
+  HyperStreamJobKind kind = HyperStreamJobKind::kDeflate;
+  DataVector<uint8_t> input;
+  const HyperDeviceSpaces* dev = nullptr;
+  size_t current_size = 0;
+  std::vector<uint8_t> output;
+  bool compacted = false;
+};
+
+}
+
+int HyperRecompressStreams(CPDF_Document* doc, const CompressOptions& opts) {
   if (!doc)
     return 0;
-  int recompressed = 0;
+  const int threads = hyper_cs::ResolveThreadCount(opts.threads);
+
+  std::unordered_map<uint32_t, HyperContentInfo> content;
+  auto add_content = [&](uint32_t objnum, const CPDF_Dictionary* res) {
+    if (objnum == 0)
+      return;
+    HyperDeviceSpaces dev = HyperDeviceSpacesOf(res);
+    auto it = content.find(objnum);
+    if (it == content.end()) {
+      content[objnum].dev = std::move(dev);
+    } else if (!it->second.conflict && it->second.dev != dev) {
+      it->second.conflict = true;
+      it->second.dev.clear();
+    }
+  };
+  const int page_count = doc->GetPageCount();
+  for (int i = 0; i < page_count; ++i) {
+    RetainPtr<CPDF_Dictionary> page_dict = doc->GetMutablePageDictionary(i);
+    if (!page_dict || !HyperIsLoadablePageDict(page_dict.Get()))
+      continue;
+    auto page = pdfium::MakeRetain<CPDF_Page>(doc, page_dict);
+    RetainPtr<const CPDF_Dictionary> res = page->GetResources();
+    RetainPtr<const CPDF_Object> c = page_dict->GetDirectObjectFor("Contents");
+    if (!c)
+      continue;
+    if (const CPDF_Stream* cs = c->AsStream()) {
+      add_content(cs->GetObjNum(), res.Get());
+    } else if (const CPDF_Array* ca = c->AsArray()) {
+      for (size_t k = 0; k < ca->size(); ++k) {
+        RetainPtr<const CPDF_Stream> st = ca->GetStreamAt(k);
+        if (st)
+          add_content(st->GetObjNum(), res.Get());
+      }
+    }
+  }
   const uint32_t last = doc->GetLastObjNum();
+  for (uint32_t i = 1; i <= last; ++i) {
+    RetainPtr<CPDF_Object> obj = doc->GetOrParseIndirectObject(i);
+    if (!obj)
+      continue;
+    if (const CPDF_Stream* st = obj->AsStream()) {
+      RetainPtr<const CPDF_Dictionary> d = st->GetDict();
+      if (!d)
+        continue;
+      if (d->GetNameFor("Subtype") == "Form" ||
+          d->GetIntegerFor("PatternType") == 1) {
+        add_content(i, d->GetDictFor("Resources").Get());
+      }
+    } else if (const CPDF_Dictionary* d = obj->AsDictionary()) {
+      if (d->GetNameFor("Type") == "Font" && d->GetNameFor("Subtype") == "Type3") {
+        RetainPtr<const CPDF_Dictionary> procs = d->GetDictFor("CharProcs");
+        RetainPtr<const CPDF_Dictionary> fres = d->GetDictFor("Resources");
+        if (procs) {
+          CPDF_DictionaryLocker locker(procs);
+          for (const auto& it : locker) {
+            const CPDF_Reference* ref = it.second ? it.second->AsReference() : nullptr;
+            if (ref)
+              add_content(ref->GetRefObjNum(), fres.Get());
+          }
+        }
+      }
+    }
+  }
+
+  static constexpr size_t kWaveBytes = 256u * 1024 * 1024;
+  std::vector<HyperStreamJob> wave;
+  size_t wave_bytes = 0;
+  int replaced = 0;
+  hyper_cs::CompactOptions base_copts;
+  base_copts.precision = opts.content_precision;
+
+  static constexpr size_t kBlockDeflateBytes = 8u * 1024 * 1024;
+  auto deflate9 = [](const uint8_t* d, size_t n, int inner,
+                     std::vector<uint8_t>* out) {
+    if (n >= kBlockDeflateBytes)
+      hyper_cs::DeflateParallel(d, n, 9, inner, out);
+    else
+      hyper_cs::Deflate(d, n, 9, out);
+  };
+  auto process = [&](HyperStreamJob& j, int inner) {
+    std::vector<uint8_t> out;
+    switch (j.kind) {
+      case HyperStreamJobKind::kContent: {
+        hyper_cs::CompactOptions co = base_copts;
+        co.device_spaces = j.dev;
+        std::string compact;
+        const bool ok = hyper_cs::CompactContent(j.input.data(), j.input.size(),
+                                                 co, &compact);
+        if (ok) {
+          deflate9(reinterpret_cast<const uint8_t*>(compact.data()),
+                   compact.size(), inner, &out);
+          j.compacted = true;
+        } else {
+          deflate9(j.input.data(), j.input.size(), inner, &out);
+        }
+        break;
+      }
+      case HyperStreamJobKind::kReflate: {
+
+        std::vector<uint8_t> decoded;
+        static constexpr size_t kMaxInMemoryInflate = 512u * 1024 * 1024;
+        if (hyper_cs::Inflate(j.input.data(), j.input.size(),
+                              kMaxInMemoryInflate, &decoded)) {
+          deflate9(decoded.data(), decoded.size(), inner, &out);
+        } else if (!hyper_cs::Reflate(j.input.data(), j.input.size(), 9, &out)) {
+          out.clear();
+        }
+        break;
+      }
+      case HyperStreamJobKind::kDeflate:
+        deflate9(j.input.data(), j.input.size(), inner, &out);
+        break;
+    }
+    if (!out.empty() && out.size() < j.current_size)
+      j.output = std::move(out);
+    j.input = DataVector<uint8_t>();
+  };
+
+  auto run_wave = [&]() {
+    if (wave.empty())
+      return;
+
+    size_t total = 0;
+    for (const HyperStreamJob& j : wave) total += j.input.size();
+    const size_t fair = threads > 0 ? total / static_cast<size_t>(threads) : total;
+    std::vector<size_t> order;
+    for (size_t idx = 0; idx < wave.size(); ++idx) {
+      if (threads > 1 && wave[idx].input.size() > fair &&
+          wave[idx].input.size() >= 1024 * 1024)
+        process(wave[idx], threads);
+      else
+        order.push_back(idx);
+    }
+    std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) {
+      return wave[a].input.size() > wave[b].input.size();
+    });
+    hyper_cs::ParallelFor(order.size(), threads,
+                          [&](size_t k) { process(wave[order[k]], 1); });
+    for (HyperStreamJob& j : wave) {
+      if (j.output.empty())
+        continue;
+      RetainPtr<CPDF_Object> obj = doc->GetOrParseIndirectObject(j.objnum);
+      CPDF_Stream* st = obj ? obj->AsMutableStream() : nullptr;
+      if (!st)
+        continue;
+      st->TakeData(DataVector<uint8_t>(j.output.begin(), j.output.end()));
+      if (j.kind != HyperStreamJobKind::kReflate) {
+        RetainPtr<CPDF_Dictionary> d = st->GetMutableDict();
+        d->SetNewFor<CPDF_Name>("Filter", "FlateDecode");
+        d->RemoveFor("DecodeParms");
+        d->RemoveFor("DP");
+        d->RemoveFor("DL");
+      }
+      ++replaced;
+    }
+    wave.clear();
+    wave_bytes = 0;
+  };
+
   for (uint32_t i = 1; i <= last; ++i) {
     RetainPtr<CPDF_Object> obj = doc->GetOrParseIndirectObject(i);
     if (!obj || !obj->IsStream())
       continue;
-    CPDF_Stream* s = obj->AsMutableStream();
-    RetainPtr<CPDF_Dictionary> d = s->GetMutableDict();
-    if (!d || d->KeyExist("Filter"))
+    CPDF_Stream* st = obj->AsMutableStream();
+    RetainPtr<const CPDF_Dictionary> d = st->GetDict();
+    if (!d)
       continue;
     const ByteString type = d->GetNameFor("Type");
     if (type == "XRef" || type == "ObjStm")
       continue;
-    if (type == "Metadata")
+    if (d->KeyExist("F"))
       continue;
-    auto acc =
-        pdfium::MakeRetain<CPDF_StreamAcc>(pdfium::WrapRetain(obj->AsStream()));
-    acc->LoadAllDataRaw();
-    pdfium::span<const uint8_t> raw = acc->GetSpan();
-    if (raw.size() < 256)
+    if (HyperIsXmlMetadataStream(d.Get()))
       continue;
-    DataVector<uint8_t> flate = FlateModule::Encode(raw);
-    if (flate.empty() || flate.size() >= raw.size())
+
+    RetainPtr<const CPDF_Object> f = d->GetDirectObjectFor("Filter");
+    enum { kNone, kFlate, kOther } shape = kOther;
+
+    bool generic_chain = true;
+    if (f) {
+      auto generic = [](const ByteString& n) {
+        return n == "FlateDecode" || n == "LZWDecode" || n == "ASCII85Decode" ||
+               n == "ASCIIHexDecode" || n == "RunLengthDecode" || n == "Fl" ||
+               n == "LZW" || n == "A85" || n == "AHx" || n == "RL";
+      };
+      if (f->IsName()) {
+        generic_chain = generic(f->GetString());
+      } else if (const CPDF_Array* fa = f->AsArray()) {
+        for (size_t k = 0; k < fa->size(); ++k) {
+          RetainPtr<const CPDF_Object> e = fa->GetDirectObjectAt(k);
+          if (!e || !e->IsName() || !generic(e->GetString()))
+            generic_chain = false;
+        }
+      } else {
+        generic_chain = false;
+      }
+    }
+    if (!f) {
+      shape = kNone;
+    } else if (f->IsName()) {
+      shape = f->GetString() == "FlateDecode" ? kFlate : kOther;
+    } else if (const CPDF_Array* fa = f->AsArray()) {
+      if (fa->size() == 0) {
+        shape = kNone;
+      } else if (fa->size() == 1) {
+        RetainPtr<const CPDF_Object> e = fa->GetDirectObjectAt(0);
+        shape = (e && e->IsName() && e->GetString() == "FlateDecode") ? kFlate
+                                                                       : kOther;
+      }
+    }
+    const size_t current = st->GetRawSize();
+    if (current < 64)
       continue;
-    const int flen = static_cast<int>(flate.size());
-    s->TakeData(std::move(flate));
-    d->SetNewFor<CPDF_Name>("Filter", "FlateDecode");
-    d->SetNewFor<CPDF_Number>("Length", flen);
-    ++recompressed;
+    HyperStreamJob job;
+    job.objnum = i;
+    job.current_size = current;
+    auto cit = content.find(i);
+    if (cit != content.end() && (shape != kOther || generic_chain)) {
+
+      auto acc = pdfium::MakeRetain<CPDF_StreamAcc>(pdfium::WrapRetain(st));
+      if (shape == kNone)
+        acc->LoadAllDataRaw();
+      else
+        acc->LoadAllDataFiltered();
+      pdfium::span<const uint8_t> sp = acc->GetSpan();
+      if (sp.empty())
+        continue;
+      job.kind = HyperStreamJobKind::kContent;
+      job.input = DataVector<uint8_t>(sp.begin(), sp.end());
+      job.dev = cit->second.conflict ? nullptr : &cit->second.dev;
+    } else if (shape == kFlate) {
+      auto acc = pdfium::MakeRetain<CPDF_StreamAcc>(pdfium::WrapRetain(st));
+      acc->LoadAllDataRaw();
+      pdfium::span<const uint8_t> sp = acc->GetSpan();
+      if (sp.empty())
+        continue;
+
+      if (hyper_cs::ZlibHeaderLevel(sp.data(), sp.size()) == 3)
+        continue;
+      job.kind = HyperStreamJobKind::kReflate;
+      job.input = DataVector<uint8_t>(sp.begin(), sp.end());
+    } else if (shape == kNone) {
+      auto acc = pdfium::MakeRetain<CPDF_StreamAcc>(pdfium::WrapRetain(st));
+      acc->LoadAllDataRaw();
+      pdfium::span<const uint8_t> sp = acc->GetSpan();
+      if (sp.empty())
+        continue;
+      job.kind = HyperStreamJobKind::kDeflate;
+      job.input = DataVector<uint8_t>(sp.begin(), sp.end());
+    } else {
+      continue;
+    }
+    wave_bytes += job.input.size();
+    wave.push_back(std::move(job));
+    if (wave_bytes >= kWaveBytes)
+      run_wave();
   }
-  return recompressed;
+  run_wave();
+  return replaced;
 }
 
 class HyperIccFlattener {
@@ -6752,6 +7764,12 @@ HyperCompress_SetOption(FPDF_COMPRESS_OPTIONS h, int option, int value) {
     case HYPERC_OPT_MRC_FG_QUALITY:       opts->mrc_fg_quality = value; break;
     case HYPERC_OPT_RECOMPRESS_CONTENT_STREAMS:
       opts->recompress_content_streams = value; break;
+    case HYPERC_OPT_CONTENT_PRECISION:
+      opts->content_precision = value < 0 ? 0 : (value > 8 ? 8 : value);
+      if (opts->content_precision > 0 && opts->content_precision < 3)
+        opts->content_precision = 3;
+      break;
+    case HYPERC_OPT_THREADS:          opts->threads = value < 0 ? 0 : value; break;
     case HYPERC_OPT_STREAM_CODEC:
       opts->stream_codec = value; break;
     case HYPERC_OPT_BROTLI_QUALITY:
@@ -6808,6 +7826,10 @@ HyperCompress_GetOption(FPDF_COMPRESS_OPTIONS h, int option) {
     case HYPERC_OPT_MRC_FG_QUALITY:       return opts->mrc_fg_quality;
     case HYPERC_OPT_RECOMPRESS_CONTENT_STREAMS:
       return opts->recompress_content_streams;
+    case HYPERC_OPT_CONTENT_PRECISION:
+      return opts->content_precision;
+    case HYPERC_OPT_THREADS:
+      return opts->threads;
     case HYPERC_OPT_STREAM_CODEC:
       return opts->stream_codec;
     case HYPERC_OPT_BROTLI_QUALITY:
@@ -6834,6 +7856,13 @@ HyperCompress_Execute(FPDF_DOCUMENT document, FPDF_COMPRESS_OPTIONS h) {
       (opts->discard_mask & HYPERC_DISCARD_SIGNATURES) != 0;
   if (HyperDocIsSigned(doc) && !remove_signatures)
     return HYPERC_EXEC_SKIPPED_SIGNED;
+
+  struct JpxDecodeThreadsScope {
+    explicit JpxDecodeThreadsScope(int n) {
+      fxcodec::CJPX_Decoder::SetHyperDecodeThreads(n);
+    }
+    ~JpxDecodeThreadsScope() { fxcodec::CJPX_Decoder::SetHyperDecodeThreads(0); }
+  } jpx_threads_scope(hyper_cs::ResolveThreadCount(opts->threads));
 
   HyperCoalescePageContents(doc);
 
@@ -6862,7 +7891,9 @@ HyperCompress_Execute(FPDF_DOCUMENT document, FPDF_COMPRESS_OPTIONS h) {
   HyperIccFlattener icc_pass(doc, *opts);
   icc_pass.Run();
 
-  HyperFlateUncompressedStreams(doc);
+  if (opts->recompress_content_streams)
+    HyperRecompressStreams(doc, *opts);
+
   if ((opts->pdfa_mode & 1) == 0)
     HyperBrotliRecodeStreams(doc, *opts);
 

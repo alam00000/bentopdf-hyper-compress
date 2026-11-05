@@ -13,6 +13,12 @@ test('--brotli maps onto the option override', () => {
   assert.equal(parse(['a', 'b', '--brotli']).overrides.brotli, true);
 });
 
+test('--mrc and --set keep MRC modes as strings', () => {
+  assert.equal(parse(['a', 'b', '--mrc', 'auto']).overrides.mrc, 'auto');
+  assert.equal(parse(['a', 'b', '--set', 'mrc=force']).overrides.mrc, 'force');
+  assert.equal(parse(['a', 'b', '--set', 'mrcBackgroundDpi=70']).overrides.mrcBackgroundDpi, 70);
+});
+
 test('--set coerces booleans and numbers', () => {
   const p = parse(['a', 'b', '--set', 'grayscale=true', '--set', 'imageQuality=55']);
   assert.equal(p.overrides.grayscale, true);

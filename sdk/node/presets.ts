@@ -13,6 +13,8 @@ const PRESET_BASE: HyperCompressOptions = {
   removeStructTree: false, removeThreads: false, removeSpiderInfo: false,
   removeOutputIntents: false,
   preserveConformance: false, brotli: false,
+  mrc: 'off', mrcBackgroundDpi: 75, mrcBackgroundQuality: 30, mrcForegroundQuality: 50,
+  contentPrecision: 6,
 };
 
 export const HYPER_PRESETS: Record<CompressLevel, HyperCompressOptions> = {
@@ -32,6 +34,6 @@ export const HYPER_PRESETS: Record<CompressLevel, HyperCompressOptions> = {
   lossless: {
     ...PRESET_BASE,
     imageQuality: 100, maxDpi: 0, lossless: true, clipImages: false,
-    flattenIcc: false, preferJpx: false,
+    flattenIcc: false, preferJpx: false, contentPrecision: 0,
   },
 };

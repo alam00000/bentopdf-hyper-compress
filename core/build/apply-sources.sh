@@ -33,6 +33,8 @@ echo "==> Copying engine sources"
 cp "$CORE/src/fpdf_compress.cpp" \
    "$CORE/src/hyper_type1_wrap.cc" \
    "$CORE/src/hyper_jbig2_wrap.cc" \
+   "$CORE/src/hyper_content_stream.cc" \
+   "$CORE/src/hyper_content_stream.h" \
    "$CORE/src/hyper_generic_cmyk_icc.h" \
    "$SRC/fpdfsdk/"
 cp "$CORE/include/fpdf_compress.h" "$SRC/public/fpdf_compress.h"
