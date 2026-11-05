@@ -4172,7 +4172,19 @@ class HyperImageRewrite {
 
     if (source->GetBPP() > 1) {
       auto realized = pdfium::MakeRetain<CFX_DIBitmap>();
-      if (!realized->Copy(source)) return false;
+      if (reduce > 1) {
+        if (!realized->Create(source->GetWidth(), source->GetHeight(),
+                              source->GetFormat()))
+          return false;
+        for (int row = 0; row < source->GetHeight(); ++row) {
+          pdfium::span<const uint8_t> in = source->GetScanline(row);
+          pdfium::span<uint8_t> out = realized->GetWritableScanline(row);
+          const size_t n = std::min(in.size(), out.size());
+          if (n) memcpy(out.data(), in.data(), n);
+        }
+      } else if (!realized->Copy(source)) {
+        return false;
+      }
       if (source->HasPalette())
         realized->SetPalette(source->GetPaletteSpan());
       source = std::move(realized);
