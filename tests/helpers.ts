@@ -409,10 +409,18 @@ export function featurePdf(): Uint8Array {
 export function monoScanPdf(width = 2400, height = 3000): Uint8Array {
   const rowBytes = Math.ceil(width / 8);
   const bits = Buffer.alloc(rowBytes * height, 0xff);
-  for (let y = 0; y < height; y++) {
-    if (Math.floor(y / 30) % 2 === 0) continue;
-    for (let x = 100; x < width - 100; x++) {
-      if (Math.floor(x / 9) % 3 !== 0) bits[y * rowBytes + (x >> 3)]! &= ~(0x80 >> (x & 7));
+  let seed = 7;
+  const rand = (n: number) => {
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    return seed % n;
+  };
+  for (let b = 0; b < 4000; b++) {
+    const x0 = 100 + rand(width - 240), y0 = 100 + rand(height - 160);
+    const bw = 8 + rand(32), bh = 20 + rand(20);
+    for (let y = y0; y < y0 + bh; y++) {
+      for (let x = x0; x < x0 + bw; x++) {
+        if (rand(100) < 85) bits[y * rowBytes + (x >> 3)]! &= ~(0x80 >> (x & 7));
+      }
     }
   }
   const content = 'q 612 0 0 792 0 0 cm /Im0 Do Q';
