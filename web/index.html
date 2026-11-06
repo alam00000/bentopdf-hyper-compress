@@ -9,6 +9,7 @@
 </head>
 <body>
 <header class="tool-header">
+  <div class="frame nav-inner">
   <a class="brand" href="https://www.bentopdf.com">
     <svg width="28" height="28" viewBox="0 0 166 166" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
     <g transform="translate(40, 0)">
@@ -20,14 +21,16 @@
     <span class="bname">BentoPDF</span>
     <span class="tname">Hyper Compress</span>
   </a>
+  <div class="nav-fill" aria-hidden="true"></div>
   <div class="tool-header-actions">
     <button class="btn" id="addBtn" type="button"><span class="ic" data-icon="plus"></span>Add files</button>
     <button class="btn-ghost" id="clearBtn" type="button" disabled><span class="ic" data-icon="trash"></span>Clear</button>
   </div>
   <a class="btn-ghost docs-link" href="/docs/"><span class="ic" data-icon="book-open"></span>Docs</a>
+  </div>
 </header>
 
-<div class="tool-body">
+<main class="frame tool-body">
   <section class="tool-left">
     <div class="tool-dropzone" id="drop" role="button" tabindex="0" aria-label="Choose PDFs">
       <div class="tool-dropzone-inner">
@@ -91,7 +94,19 @@
       <div id="status">Loading engine...</div>
     </div>
   </aside>
-</div>
+</main>
+
+<footer class="tool-footer">
+  <div class="frame foot-inner">
+    <span>&copy; 2026 BentoPDF. Dual-licensed under AGPL-3.0 and Commercial License.</span>
+    <nav aria-label="Footer">
+      <a href="/docs/">Docs</a>
+      <a href="https://github.com/alam00000/bentopdf-hyper-compress">GitHub</a>
+      <a href="https://www.npmjs.com/package/hyper-compress">npm</a>
+      <a href="https://www.bentopdf.com">BentoPDF</a>
+    </nav>
+  </div>
+</footer>
 
 <script type="module">
 import { initApp } from './app.js';
