@@ -9,15 +9,17 @@ import { HYPER_PRESETS, type CompressLevel } from './presets.js';
 
 import { HyperError } from './errors.js';
 import {
-  conformanceSafeOptions, detectPdfaInBytes, packAllowedWhilePreserving,
-  restoreHeaderVersion, type PdfaLevel,
+  conformanceSafeOptions, conformanceWarnings, detectPdfaInBytes, packAllowedWhilePreserving,
+  raiseHeaderVersion, restoreHeaderVersion, type PdfaLevel,
 } from './pdfa.js';
+import { buildReport, parseImageNotes, type HyperReport, type QpdfJson } from './report.js';
 import {
   TARGET_QUALITY_FLOOR, TARGET_QUALITY_STEPS, targetLadder, targetMissWarning,
   targetStartQuality,
 } from './target.js';
 
 export { HyperError, type HyperErrorCode } from './errors.js';
+export type { HyperReport } from './report.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const EXE = process.platform === 'win32' ? '.exe' : '';
@@ -81,6 +83,7 @@ export interface CompressInput {
   preset?: CompressLevel | undefined;
   options?: Partial<HyperCompressOptions> | undefined;
   targetSizeBytes?: number | undefined;
+  report?: boolean | string | undefined;
   signal?: AbortSignal | undefined;
   timeoutMs?: number | undefined;
   totalTimeoutMs?: number | undefined;
@@ -96,6 +99,7 @@ export interface CompressResult {
   pdfaPreserved: boolean;
   metTarget: boolean | null;
   warnings: string[];
+  report?: HyperReport | undefined;
 }
 
 interface StageLimits {
@@ -150,7 +154,13 @@ function runDriver(
   outPath: string,
   tokens: string[],
   limits?: StageLimits,
-): Promise<{ ok: boolean; signed: boolean; signaturesRemoved: boolean; note: string | null }> {
+): Promise<{
+  ok: boolean;
+  signed: boolean;
+  signaturesRemoved: boolean;
+  note: string | null;
+  stderr: string;
+}> {
   return new Promise((resolve) => {
     const child = spawn(driverPath(), [safeArgPath(inPath), safeArgPath(outPath), ...tokens], {
       stdio: ['ignore', 'ignore', 'pipe'],
@@ -160,12 +170,13 @@ function runDriver(
     child.stderr?.on('data', (chunk: Buffer) => {
       stderr += chunk.toString();
     });
-    child.on('error', () => resolve({ ok: false, signed: false, signaturesRemoved: false, note: null }));
+    child.on('error', () =>
+      resolve({ ok: false, signed: false, signaturesRemoved: false, note: null, stderr }));
     child.on('close', (code) => {
       const signed = /SIGNED_SKIP/.test(stderr);
       const signaturesRemoved = /SIGNATURES_REMOVED/.test(stderr);
       const note = stderr.match(/\[hyper\] (rasterize skipped:[^\r\n]*)/)?.[1] ?? null;
-      resolve({ ok: code === 0, signed, signaturesRemoved, note });
+      resolve({ ok: code === 0, signed, signaturesRemoved, note, stderr });
     });
   });
 }
@@ -180,16 +191,56 @@ function runQpdf(args: string[], limits?: StageLimits): Promise<boolean> {
   });
 }
 
+function runQpdfJson(inPath: string, limits?: StageLimits): Promise<QpdfJson | null> {
+  const bin = tryResolveBin('HYPER_QPDF', 'qpdf');
+  if (!bin) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const child = spawn(
+      bin,
+      ['--json=2', '--json-key=pages', '--json-key=qpdf', '--json-stream-data=none', safeArgPath(inPath)],
+      { stdio: ['ignore', 'pipe', 'ignore'], ...stageSpawnOpts(limits) },
+    );
+    const chunks: Buffer[] = [];
+    child.stdout?.on('data', (c: Buffer) => chunks.push(c));
+    child.on('error', () => resolve(null));
+    child.on('close', () => {
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')) as QpdfJson);
+      } catch {
+        resolve(null);
+      }
+    });
+  });
+}
+
+async function raiseFileHeaderVersion(p: string, minVersion: string): Promise<void> {
+  if (minVersion === 'none') return;
+  const fh = await fs.promises.open(p, 'r+');
+  try {
+    const head = new Uint8Array(8);
+    const { bytesRead } = await fh.read(head, 0, 8, 0);
+    const current = head.subarray(0, bytesRead);
+    const raised = raiseHeaderVersion(current, minVersion);
+    if (raised !== current) {
+      await fh.write(raised, 0, raised.length, 0);
+    }
+  } finally {
+    await fh.close();
+  }
+}
+
 function runQpdfPack(
   inPath: string,
   outPath: string,
   limits?: StageLimits,
   recompressFlate = false,
+  linearize = false,
 ): Promise<boolean> {
   return runQpdf([
     '--warning-exit-0',
     '--object-streams=generate',
     ...(recompressFlate ? ['--recompress-flate'] : []),
+    ...(linearize ? ['--linearize'] : []),
     '--compression-level=9',
     safeArgPath(inPath),
     safeArgPath(outPath),
@@ -271,15 +322,11 @@ export async function compress(input: CompressInput): Promise<CompressResult> {
   const preserving = Boolean(options.preserveConformance && claimed);
   if (preserving && claimed) {
     options = conformanceSafeOptions(options, claimed);
-    if (requested.rasterizePages && !options.rasterizePages) {
-      warnings.push('rasterizePages disabled to preserve PDF/A conformance');
-    }
-    if (requested.brotli) {
-      warnings.push('brotli disabled to preserve PDF/A conformance');
-    }
+    warnings.push(...conformanceWarnings(requested, options));
   }
   options = { ...options, preserveConformance: preserving };
-  const tokens = buildHyperTokens(options);
+  const wantReport = input.report === true || (typeof input.report === 'string' && input.report.length > 0);
+  const tokens = [...buildHyperTokens(options), ...(wantReport ? ['71=1'] : [])];
 
   let finalPath: string;
   if (input.savePath && input.savePath.length > 0) {
@@ -317,7 +364,8 @@ export async function compress(input: CompressInput): Promise<CompressResult> {
       const r = await runDriver(workIn, drvPath, attemptTokens, limits);
       if (!r.ok || r.signed) return { ...r, candidate: null };
       if (skipPack) return { ...r, candidate: drvPath };
-      if ((await runQpdfPack(drvPath, packPath, limits)) && (await statSize(packPath)) > 0) {
+      if ((await runQpdfPack(drvPath, packPath, limits, false, attemptOptions.linearize)) &&
+          (await statSize(packPath)) > 0) {
         return { ...r, candidate: packPath };
       }
       return { ...r, candidate: drvPath };
@@ -327,9 +375,27 @@ export async function compress(input: CompressInput): Promise<CompressResult> {
       ? Math.floor(input.targetSizeBytes)
       : null;
 
-    const { ok, signed, signaturesRemoved, note } = await runDriver(workIn, drvOut, tokens, limits);
+    const { ok, signed, signaturesRemoved, note, stderr } =
+      await runDriver(workIn, drvOut, tokens, limits);
     if (note) warnings.push(note);
     throwIfAborted(effectiveSignal);
+
+    const makeReport = async (outPath: string, compressedSize: number): Promise<HyperReport | undefined> => {
+      if (!wantReport) return undefined;
+      const [before, after] = await Promise.all([
+        runQpdfJson(workIn, limits),
+        runQpdfJson(outPath, limits),
+      ]);
+      if (!before || !after) {
+        warnings.push('report unavailable: the PDF structure could not be read');
+        return undefined;
+      }
+      const report = buildReport(before, after, { originalSize, compressedSize }, parseImageNotes(stderr));
+      if (typeof input.report === 'string') {
+        await fs.promises.writeFile(input.report, JSON.stringify(report, null, 2));
+      }
+      return report;
+    };
 
     if (ok && signed) {
       await fs.promises.copyFile(fallbackBase, finalPath);
@@ -344,6 +410,7 @@ export async function compress(input: CompressInput): Promise<CompressResult> {
         pdfaPreserved: Boolean(claimed),
         metTarget: target != null ? signedSize <= target : null,
         warnings,
+        report: await makeReport(finalPath, signedSize),
       };
     }
 
@@ -351,12 +418,13 @@ export async function compress(input: CompressInput): Promise<CompressResult> {
     if (ok) {
       if (skipPack) {
         packed = drvOut;
-      } else if ((await runQpdfPack(drvOut, packOut, limits)) && (await statSize(packOut)) > 0) {
+      } else if ((await runQpdfPack(drvOut, packOut, limits, false, options.linearize)) &&
+                 (await statSize(packOut)) > 0) {
         packed = packOut;
       } else {
         packed = drvOut;
       }
-    } else if (!skipPack && (await runQpdfPack(workIn, packOut, limits, true)) &&
+    } else if (!skipPack && (await runQpdfPack(workIn, packOut, limits, true, options.linearize)) &&
                (await statSize(packOut)) > 0) {
       packed = packOut;
     }
@@ -439,6 +507,15 @@ export async function compress(input: CompressInput): Promise<CompressResult> {
     } else {
       await fs.promises.copyFile(finalSource, finalPath);
     }
+    await raiseFileHeaderVersion(finalPath, options.minVersion);
+    if (!usedEngineOutput) {
+      if (options.colorTarget !== 'original' && !options.lossless) {
+        warnings.push(`colorTarget ${options.colorTarget} not applied: the converted file was not smaller than the original, so the original was kept`);
+      }
+      if (options.linearize) {
+        warnings.push('linearize not applied: the optimized file was not smaller than the original, so the original was kept');
+      }
+    }
 
     const finalSize = await statSize(finalPath);
     const metTarget = target != null ? finalSize <= target : null;
@@ -460,6 +537,7 @@ export async function compress(input: CompressInput): Promise<CompressResult> {
       pdfaPreserved: preserving,
       metTarget,
       warnings,
+      report: await makeReport(finalPath, finalSize),
     };
   } finally {
     if (deadlineTimer) clearTimeout(deadlineTimer);

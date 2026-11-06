@@ -81,6 +81,12 @@ struct CompactOptions {
   int precision = 0;
 
   const std::map<std::string, int, std::less<>>* device_spaces = nullptr;
+
+  int convert_ncomp = 0;
+
+  std::function<void(int n_in, const double* in, double* out)> convert;
+
+  int* converted = nullptr;
 };
 
 bool CompactContent(const uint8_t* data,

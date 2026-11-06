@@ -6,8 +6,8 @@ import {
   targetStartQuality,
 } from '../sdk/node/target.js';
 import {
-  conformanceSafeOptions, formatPdfaLevel, packAllowedWhilePreserving, parsePdfaFromXmp,
-  restoreHeaderVersion, stripPdfaFromXmp, type PdfaLevel,
+  conformanceSafeOptions, conformanceWarnings, formatPdfaLevel, packAllowedWhilePreserving,
+  parsePdfaFromXmp, raiseHeaderVersion, restoreHeaderVersion, stripPdfaFromXmp, type PdfaLevel,
 } from '../sdk/node/pdfa.js';
 
 export interface HyperWasmModule {
@@ -292,12 +292,10 @@ export function compressBuffer(
   const preserving = Boolean(resolved.preserveConformance && claimed);
   if (preserving && claimed) {
     resolved = conformanceSafeOptions(resolved, claimed);
-    if (requested.rasterizePages && !resolved.rasterizePages) {
-      warnings.push('rasterizePages disabled to preserve PDF/A conformance');
-    }
-    if (requested.brotli) {
-      warnings.push('brotli disabled to preserve PDF/A conformance');
-    }
+    warnings.push(...conformanceWarnings(requested, resolved));
+  }
+  if (resolved.linearize) {
+    warnings.push('linearize is not available in the WebAssembly build');
   }
   resolved = { ...resolved, preserveConformance: preserving };
   const tokens = buildHyperTokens(resolved);
@@ -324,6 +322,7 @@ export function compressBuffer(
         outcome = 'preserved';
       }
     }
+    out = raiseHeaderVersion(out, resolved.minVersion);
     const metTarget = target != null ? out.length <= target : null;
     if (metTarget === false && target != null) {
       warnings.push(targetMissWarning(out.length, target));

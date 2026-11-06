@@ -94,3 +94,17 @@ test('the output path is optional and defaults beside the input', async () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('--report takes a file path and --set values for new enums survive coercion', async () => {
+  assert.equal(parse(['a', 'b', '--report', 'r.json']).report, 'r.json');
+  assert.equal(parse(['a', 'b']).report, undefined);
+  const { normalizeHyperOptions } = await import('../sdk/node/options.js');
+  const p = parse(['a', 'b', '--set', 'minVersion=1.7', '--set', 'jpegSubsampling=420',
+    '--set', 'colorTarget=cmyk', '--set', 'annotations=remove', '--set', 'speed=fast']);
+  const o = normalizeHyperOptions(p.overrides);
+  assert.equal(o.minVersion, '1.7');
+  assert.equal(o.jpegSubsampling, '420');
+  assert.equal(o.colorTarget, 'cmyk');
+  assert.equal(o.annotations, 'remove');
+  assert.equal(o.speed, 'fast');
+});

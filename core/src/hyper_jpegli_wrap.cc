@@ -32,7 +32,7 @@ bool HyperJpegliEncode(const uint8_t* src,
                        int is_bgr,
                        int quality,
                        int progressive,
-                       int subsample420,
+                       int subsample,
                        uint8_t** out_buf,
                        size_t* out_len) {
   if (!src || width <= 0 || height <= 0 || stride <= 0 || !out_buf ||
@@ -93,9 +93,9 @@ bool HyperJpegliEncode(const uint8_t* src,
   cinfo.in_color_space = color ? JCS_RGB : JCS_GRAYSCALE;
   jpegli_set_defaults(&cinfo);
   jpegli_set_quality(&cinfo, quality,  TRUE);
-  if (color && subsample420) {
+  if (color && (subsample == 1 || subsample == 2)) {
     cinfo.comp_info[0].h_samp_factor = 2;
-    cinfo.comp_info[0].v_samp_factor = 2;
+    cinfo.comp_info[0].v_samp_factor = subsample == 1 ? 2 : 1;
     cinfo.comp_info[1].h_samp_factor = 1;
     cinfo.comp_info[1].v_samp_factor = 1;
     cinfo.comp_info[2].h_samp_factor = 1;

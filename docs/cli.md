@@ -29,7 +29,7 @@ If the engine skipped anything you asked for, it prints `warning:` lines to stde
 hyper <input.pdf> [output.pdf] [--preset low|medium|high|lossless]
                                [--password PW] [--set key=value ...]
                                [--brotli] [--mrc off|auto|force]
-                               [--target-size N[KB|MB]]
+                               [--target-size N[KB|MB]] [--report FILE]
 ```
 
 The output path is optional. Leave it out and the result is written next to the input as `<input>-compressed.pdf`:
@@ -81,7 +81,7 @@ If the target is reachable you get the best looking file that fits. If it is not
 hyper in.pdf out.pdf --set grayscale=true --set imageQuality=40
 ```
 
-Overrides any of the 28 engine options on top of the preset, by its camelCase name. `true`, `false` and numbers are parsed; the flag repeats. Every name, range and default is in the [options reference](/options). Two useful examples:
+Overrides any of the engine options on top of the preset, by its camelCase name. `true`, `false` and numbers are parsed; the flag repeats. Every name, range and default is in the [options reference](/options). Two useful examples:
 
 ```bash
 hyper scan.pdf out.pdf --set rasterizePages=true --set rasterizeDpi=100
@@ -89,6 +89,18 @@ hyper report.pdf out.pdf --set preserveConformance=true
 ```
 
 The first flattens an image-only scan to rendered pages, which can be dramatic on bloated scans. The second keeps a PDF/A document conformant, automatically disabling anything that would break the standard.
+
+A few more that are handy on the command line:
+
+```bash
+hyper in.pdf out.pdf --set colorTarget=cmyk        # convert images, text and vectors to CMYK
+hyper in.pdf out.pdf --set maxDpiColor=150 --set maxDpiGray=150 --set maxDpiMono=300
+hyper in.pdf out.pdf --set annotations=remove --set removeActions=true --set removeMetadata=true
+hyper in.pdf out.pdf --set linearize=true --set minVersion=1.7
+hyper in.pdf out.pdf --set speed=fast
+```
+
+`annotations` takes `keep`, `flatten` or `remove`. The older `removeAnnots=true` still works and means `annotations=flatten`, which is what it has always done.
 
 ### --brotli
 
@@ -106,6 +118,16 @@ hyper scan.pdf out.pdf --mrc auto --set mrcBackgroundDpi=70 --set mrcBackgroundQ
 ```
 
 Shorthand for `--set mrc=auto`: mixed raster content for scanned documents. Each scanned page is split into a sharp 1-bit text mask, a low-resolution background and a low-resolution ink colour layer, which is usually much smaller than one full-resolution photo of the page. `auto` only touches pages made of one or two page-sized images with no visible text; `force` tries every page. Every rewritten page is rendered before and after, and put back as it was if text faded or the page changed visibly. The layer resolution and qualities are the `mrcBackgroundDpi`, `mrcBackgroundQuality` and `mrcForegroundQuality` options. Off by default, and never applied with `--preset lossless`.
+
+### --report
+
+```bash
+hyper in.pdf out.pdf --report report.json
+```
+
+Writes a JSON report next to the compression. It lists every font (name, type, whether it was embedded and subset before and after, and what happened to it: kept, subset, unembedded, merged, recompressed or removed), every page image (page, resolution as placed, colour space, codec and size before and after) and a cleanup table counting what each cleanup removed: document info entries, XMP metadata, bookmarks, attachments, actions, named destinations, print settings, annotations, form fields, links, thumbnails and so on. The same report is returned as `report` from the Node SDK when you pass `report: true` (or a file path) to `compress`.
+
+Images inside form XObjects are not listed. The placed resolution needs an engine build that includes the report notes; with an older engine it is `null`.
 
 ### --help and --version
 

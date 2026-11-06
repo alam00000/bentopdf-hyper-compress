@@ -14,7 +14,11 @@ export function hasEngine(): boolean {
   return existsSync(worker) && existsSync(qpdf);
 }
 
-function buildPdf(objects: Array<string | Uint8Array>, root: number): Uint8Array {
+function buildPdf(
+  objects: Array<string | Uint8Array>,
+  root: number,
+  trailerExtra = '',
+): Uint8Array {
   const enc = new TextEncoder();
   const parts: Uint8Array[] = [];
   let length = 0;
@@ -40,7 +44,7 @@ function buildPdf(objects: Array<string | Uint8Array>, root: number): Uint8Array
     push(`${off.toString().padStart(10, '0')} 00000 n \n`);
   }
   push(
-    `trailer\n<< /Size ${objects.length + 1} /Root ${root} 0 R >>\n` +
+    `trailer\n<< /Size ${objects.length + 1} /Root ${root} 0 R${trailerExtra} >>\n` +
       `startxref\n${xrefAt}\n%%EOF\n`,
   );
 
@@ -348,6 +352,125 @@ export function renderGray(bytes: Uint8Array, scale = 1): { width: number; heigh
       gray[i] = Math.round((px[i * 3]! + px[i * 3 + 1]! + px[i * 3 + 2]!) / 3);
     }
     return { width, height, gray };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function bulkText(lines = 300, color = ''): string {
+  let body = color;
+  for (let i = 0; i < lines; i++) {
+    body += `BT /F1 10 Tf 40 ${720 - (i % 60) * 11} Td (feature line ${i}: the quick brown fox) Tj ET\n`;
+  }
+  return body;
+}
+
+export function featurePdf(): Uint8Array {
+  const xmp =
+    '<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>' +
+    '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF ' +
+    'xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">' +
+    '<rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/">' +
+    '<dc:title>FEATUREXMP</dc:title></rdf:Description></rdf:RDF></x:xmpmeta>' +
+    '<?xpacket end="w"?>';
+  const content = bulkText(300, '1 0 0 rg 0 0 0 1 K 0.2 0.4 0.6 RG 0 0 50 50 re B\n');
+  const js = 'app.alert("FEATUREJS");';
+  return buildPdf(
+    [
+      '<< /Type /Catalog /Pages 2 0 R /Outlines 7 0 R /Metadata 9 0 R ' +
+        '/Names << /EmbeddedFiles << /Names [(a.txt) 10 0 R] >> ' +
+        '/JavaScript << /Names [(js) 12 0 R] >> /Dests << /Names [(target) [3 0 R /Fit]] >> >> ' +
+        '/OpenAction << /S /GoTo /D (target) >> ' +
+        '/ViewerPreferences << /PrintScaling /None /Duplex /Simplex /DisplayDocTitle true >> >>',
+      '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R ' +
+        '/Resources << /Font << /F1 5 0 R >> >> /Annots [6 0 R 13 0 R 14 0 R 15 0 R] ' +
+        '/AA << /O << /S /JavaScript /JS (1) >> >> >>',
+      `<< /Length ${content.length} >>\nstream\n${content}\nendstream`,
+      '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+      '<< /Type /Annot /Subtype /Text /Rect [10 10 30 30] /Contents (FEATURENOTE) >>',
+      '<< /Type /Outlines /First 8 0 R /Last 8 0 R /Count 1 >>',
+      '<< /Title (Chapter) /Parent 7 0 R /Dest (target) >>',
+      `<< /Type /Metadata /Subtype /XML /Length ${xmp.length} >>\nstream\n${xmp}\nendstream`,
+      '<< /Type /Filespec /F (a.txt) /EF << /F 11 0 R >> >>',
+      '<< /Type /EmbeddedFile /Length 13 >>\nstream\nFEATUREATTACH\nendstream',
+      `<< /S /JavaScript /JS (${js}) >>`,
+      '<< /Type /Annot /Subtype /Link /Rect [40 40 80 60] /Border [0 0 0] /Dest (target) >>',
+      '<< /Type /Annot /Subtype /Link /Rect [90 40 130 60] /Border [0 0 0] ' +
+        '/A << /S /Launch /F (calc.exe) >> >>',
+      '<< /Type /Annot /Subtype /FileAttachment /Rect [140 40 160 60] /FS 10 0 R >>',
+      '<< /Title (FEATURETITLE) /Producer (Fixture) /CustomKey (FEATURECUSTOM) >>',
+    ],
+    1,
+    ' /Info 16 0 R',
+  );
+}
+
+export function monoScanPdf(width = 2400, height = 3000): Uint8Array {
+  const rowBytes = Math.ceil(width / 8);
+  const bits = Buffer.alloc(rowBytes * height, 0xff);
+  for (let y = 0; y < height; y++) {
+    if (Math.floor(y / 30) % 2 === 0) continue;
+    for (let x = 100; x < width - 100; x++) {
+      if (Math.floor(x / 9) % 3 !== 0) bits[y * rowBytes + (x >> 3)]! &= ~(0x80 >> (x & 7));
+    }
+  }
+  const content = 'q 612 0 0 792 0 0 cm /Im0 Do Q';
+  return buildPdf(
+    [
+      '<< /Type /Catalog /Pages 2 0 R >>',
+      '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] ' +
+        '/Contents 4 0 R /Resources << /XObject << /Im0 5 0 R >> >> >>',
+      `<< /Length ${content.length} >>\nstream\n${content}\nendstream`,
+      streamObject(
+        `/Type /XObject /Subtype /Image /Width ${width} /Height ${height} ` +
+          '/ColorSpace /DeviceGray /BitsPerComponent 1 /Filter /FlateDecode',
+        deflateSync(bits),
+      ),
+    ],
+    1,
+  );
+}
+
+export function cmykImagePdf(width = 600, height = 500): Uint8Array {
+  const raw = Buffer.alloc(width * height * 4);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const o = (y * width + x) * 4;
+      raw[o] = (x * 255) / width;
+      raw[o + 1] = (y * 255) / height;
+      raw[o + 2] = ((x + y) * 127) / (width + height);
+      raw[o + 3] = 20;
+    }
+  }
+  const content = 'q 560 0 0 720 26 36 cm /Im0 Do Q';
+  return buildPdf(
+    [
+      '<< /Type /Catalog /Pages 2 0 R >>',
+      '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] ' +
+        '/Contents 4 0 R /Resources << /XObject << /Im0 5 0 R >> >> >>',
+      `<< /Length ${content.length} >>\nstream\n${content}\nendstream`,
+      streamObject(
+        `/Type /XObject /Subtype /Image /Width ${width} /Height ${height} ` +
+          '/ColorSpace /DeviceCMYK /BitsPerComponent 8 /Filter /FlateDecode',
+        deflateSync(raw),
+      ),
+    ],
+    1,
+  );
+}
+
+export function engineHasBranchFeatures(): boolean {
+  if (!hasEngine()) return false;
+  const worker = process.env.HYPER_DRV ?? path.join(prebuilt, 'hpdf-worker');
+  const dir = mkdtempSync(path.join(tmpdir(), 'hyper-probe-'));
+  try {
+    const inFile = path.join(dir, 'in.pdf');
+    writeFileSync(inFile, imagePdf(300, 200));
+    const r = spawnSync(worker, [inFile, path.join(dir, 'out.pdf'), '71=1'], { encoding: 'utf8' });
+    return /\[hyper-report\] image/.test(r.stderr ?? '');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -46,6 +46,7 @@
 #include "core/fpdfapi/parser/cpdf_stream.h"
 #include "core/fpdfapi/parser/cpdf_stream_acc.h"
 #include "core/fpdfapi/parser/cpdf_string.h"
+#include "core/fpdfdoc/cpdf_nametree.h"
 #include "core/fxcodec/fax/faxmodule.h"
 #include "core/fxcodec/flate/flatemodule.h"
 #include "third_party/brotli/include/brotli/encode.h"
@@ -136,10 +137,14 @@ struct CompressOptions {
   int mrc_bg_dpi = 75;
   int mrc_bg_quality = 30;
   int mrc_fg_quality = 50;
+  int mrc_detect_photos = 1;
 
   int recompress_content_streams = 1;
   int content_precision = 0;
   int threads = 0;
+  int convert_page_colors = 0;
+  int speed = HYPERC_SPEED_BALANCED;
+  int report = 0;
   int stream_codec = 0;
   int brotli_quality = 11;
 
@@ -582,7 +587,7 @@ bool HyperQuantizeRgbToIndexed(const uint8_t* bgra, int width, int height,
 
 bool HyperJpegliEncode(const uint8_t* src, int width, int height, int stride,
                        int comp, int is_bgr, int quality, int progressive,
-                       int subsample420, uint8_t** out_buf, size_t* out_len);
+                       int subsample, uint8_t** out_buf, size_t* out_len);
 void HyperJpegliFree(void* buf);
 }
 
@@ -2259,7 +2264,7 @@ bool HyperTryEmitLossyIndexed(CPDF_Document* doc,
     size_t jl_len = 0;
     if (HyperJpegliEncode(src_span.data(), w, h, stride, bpp / 8,
                           bpp >= 24 ? 1 : 0, jpeg_quality,  0,
-                          jpeg_subsample ? 1 : 0, &jl, &jl_len) &&
+                          jpeg_subsample, &jl, &jl_len) &&
         jl && jl_len) {
       if (alt_size == 0 || jl_len < alt_size) alt_size = jl_len;
       if (jpeg_dry_run) jpeg_dry_run->assign(jl, jl + jl_len);
@@ -2538,6 +2543,9 @@ bool HyperConvertAndEmitCmyk(CPDF_Document* doc,
   DataVector<uint8_t> flate_bytes =
       FlateModule::Encode(pdfium::span<const uint8_t>(
           cmyk_pixels.data(), cmyk_pixels.size()));
+  RetainPtr<const CPDF_Stream> orig = image->GetStream();
+  if (!orig || flate_bytes.empty() || flate_bytes.size() > orig->GetRawSize())
+    return false;
 
   auto dict = doc->New<CPDF_Dictionary>();
   dict->SetNewFor<CPDF_Name>("Type", "XObject");
@@ -2597,7 +2605,7 @@ bool HyperConvertAndEmitGray(CPDF_Document* doc,
 extern "C" {
 bool HyperJpegliEncode(const uint8_t* src, int width, int height, int stride,
                        int components_in, int is_bgr, int quality,
-                       int progressive, int subsample420, uint8_t** out_buf,
+                       int progressive, int subsample, uint8_t** out_buf,
                        size_t* out_len);
 void HyperJpegliFree(void* p);
 }
@@ -2672,7 +2680,7 @@ bool HyperEmitJpeg(CPDF_Document* doc,
       const bool jl_ok = HyperJpegliEncode(
           buf.data(), bitmap->GetWidth(), bitmap->GetHeight(),
           bitmap->GetPitch(), comp,  comp >= 3 ? 1 : 0, quality,
-          progressive ? 1 : 0, subsample ? 1 : 0, &jl_buf, &jl_len);
+          progressive ? 1 : 0, subsample, &jl_buf, &jl_len);
       if (jl_ok && jl_buf && jl_len) {
         if (getenv("HYPER_JPEGLI_DEBUG")) {
           fprintf(stderr, "[jpegli] %dx%d comp=%d q=%d -> %zu bytes\n",
@@ -3152,6 +3160,62 @@ void HyperUnshareResourceTree(CPDF_Document* doc,
     hd->SetNewFor<CPDF_Reference>("Resources", doc, res_objnum);
 }
 
+bool HyperImageIsCmyk(const CPDF_Dictionary* dict) {
+  if (!dict) return false;
+  RetainPtr<const CPDF_Object> cs = dict->GetDirectObjectFor("ColorSpace");
+  if (!cs) return false;
+  if (cs->IsName()) return cs->GetString() == "DeviceCMYK";
+  const CPDF_Array* arr = cs->AsArray();
+  if (!arr || arr->size() < 2) return false;
+  RetainPtr<const CPDF_Object> head = arr->GetDirectObjectAt(0);
+  if (!head || !head->IsName() || head->GetString() != "ICCBased")
+    return false;
+  RetainPtr<const CPDF_Stream> icc = arr->GetStreamAt(1);
+  RetainPtr<const CPDF_Dictionary> icc_dict = icc ? icc->GetDict() : nullptr;
+  return icc_dict && icc_dict->GetIntegerFor("N") == 4;
+}
+
+RetainPtr<CFX_DIBitmap> HyperThresholdTo1bpp(
+    const RetainPtr<CFX_DIBitmap>& src) {
+  if (!src) return nullptr;
+  const int w = src->GetWidth();
+  const int h = src->GetHeight();
+  const int bytes = src->GetBPP() / 8;
+  if (w < 1 || h < 1 || bytes < 1) return nullptr;
+  auto out = pdfium::MakeRetain<CFX_DIBitmap>();
+  if (!out->Create(w, h, FXDIB_Format::k1bppRgb)) return nullptr;
+  pdfium::span<const uint32_t> pal =
+      src->HasPalette() ? src->GetPaletteSpan()
+                        : pdfium::span<const uint32_t>();
+  for (int y = 0; y < h; ++y) {
+    pdfium::span<const uint8_t> srow = src->GetScanline(y);
+    pdfium::span<uint8_t> drow = out->GetWritableScanline(y);
+    if (srow.size() < static_cast<size_t>(w) * bytes ||
+        drow.size() < static_cast<size_t>((w + 7) / 8))
+      return nullptr;
+    std::fill(drow.begin(), drow.end(), 0);
+    for (int x = 0; x < w; ++x) {
+      uint32_t lum;
+      if (bytes == 1) {
+        const uint8_t v = srow[x];
+        if (!pal.empty() && v < pal.size()) {
+          const uint32_t argb = pal[v];
+          lum = (((argb >> 16) & 0xFF) * 77 + ((argb >> 8) & 0xFF) * 150 +
+                 (argb & 0xFF) * 29) >> 8;
+        } else {
+          lum = v;
+        }
+      } else {
+        const size_t o = static_cast<size_t>(x) * bytes;
+        lum = (srow[o + 2] * 77u + srow[o + 1] * 150u + srow[o] * 29u) >> 8;
+      }
+      if (lum >= 128)
+        drow[x / 8] |= static_cast<uint8_t>(0x80 >> (x % 8));
+    }
+  }
+  return out;
+}
+
 bool HyperImageSourceIsLossy(const RetainPtr<CPDF_Image>& image) {
   RetainPtr<const CPDF_Stream> s = image ? image->GetStream() : nullptr;
   RetainPtr<const CPDF_Dictionary> d = s ? s->GetDict() : nullptr;
@@ -3509,6 +3573,7 @@ class HyperImageRewrite {
     const int page_count = doc_->GetPageCount();
     for (int page_index = 0; page_index < page_count; ++page_index) {
       if (skip_pages_.count(page_index)) continue;
+      report_page_ = page_index;
 
       if (census_complete_ &&
           static_cast<size_t>(page_index) < page_has_images_.size() &&
@@ -4242,6 +4307,12 @@ class HyperImageRewrite {
         }
       }
     }
+    const bool source_is_cmyk = HyperImageIsCmyk(spot_img_dict.Get());
+
+    if (opts_.report) {
+      fprintf(stderr, "[hyper-report] image obj=%u page=%d dpi=%.0f\n",
+              image_objnum, report_page_ + 1, effective_dpi);
+    }
 
     const int src_w = source->GetWidth();
     const int src_h = source->GetHeight();
@@ -4290,15 +4361,18 @@ class HyperImageRewrite {
 
     const float threshold_dpi =
         opts_.image_threshold_dpi > 0
-            ? static_cast<float>(opts_.image_threshold_dpi)
+            ? std::max(static_cast<float>(opts_.image_threshold_dpi), max_dpi)
             : max_dpi * (HyperImageSourceIsLossy(image) ? 1.0f : 1.5f);
     int target_w = src_w;
     int target_h = src_h;
     bool needs_resize = false;
 
+    const bool mono_resizable = source->GetBPP() == 1 &&
+                                opts_.image_mono_max_dpi > 0 &&
+                                !source_is_spot && !source_is_indexed;
     float resize_scale = 1.0f;
     if (max_dpi > 0.0f && effective_dpi > threshold_dpi &&
-        source->GetBPP() > 1) {
+        (source->GetBPP() > 1 || mono_resizable)) {
       resize_scale = max_dpi / effective_dpi;
       target_w = std::max(
           1, static_cast<int>(std::round(src_w * reduce * resize_scale)));
@@ -4327,7 +4401,10 @@ class HyperImageRewrite {
     const bool needs_grayscale = wants_gray && source->GetBPP() > 8;
     const bool wants_cmyk =
         opts_.image_color_target == HYPERC_COLOR_TARGET_CMYK &&
-        source->GetBPP() >= 24;
+        source->GetBPP() >= 24 && !source_is_cmyk;
+    const bool wants_rgb =
+        opts_.image_color_target == HYPERC_COLOR_TARGET_SRGB &&
+        source_is_cmyk && source->GetBPP() >= 24;
 
     bool was_clipped = false;
     double crop_x[6] = {1, 0, 0, 1, 0, 0};
@@ -4348,7 +4425,7 @@ class HyperImageRewrite {
 
     const bool only_color_complexity =
         opts_.reduce_color_complexity && !needs_resize && !needs_grayscale &&
-        !was_clipped && !wants_cmyk &&
+        !was_clipped && !wants_cmyk && !wants_rgb &&
         opts_.image_encoding == HYPERC_IMAGE_ENCODING_PRESERVE;
 
     auto image_filter_is_jbig2 = [](const RetainPtr<CPDF_Image>& img) -> bool {
@@ -4372,7 +4449,8 @@ class HyperImageRewrite {
          opts_.image_encoding == HYPERC_IMAGE_ENCODING_PRESERVE) &&
         !image_filter_is_jbig2(image);
     if (!needs_resize && !needs_grayscale && !was_clipped && !wants_cmyk &&
-        !opts_.reduce_color_complexity && !wants_mono_recompress) {
+        !wants_rgb && !opts_.reduce_color_complexity &&
+        !wants_mono_recompress) {
       return false;
     }
 
@@ -4393,6 +4471,10 @@ class HyperImageRewrite {
       final_bitmap = source->StretchTo(target_w, target_h,
                                         resample_opts, nullptr);
       if (!final_bitmap) return false;
+      if (mono_resizable && final_bitmap->GetBPP() != 1) {
+        final_bitmap = HyperThresholdTo1bpp(final_bitmap);
+        if (!final_bitmap) return false;
+      }
     } else {
 
       final_bitmap = pdfium::MakeRetain<CFX_DIBitmap>();
@@ -4445,8 +4527,7 @@ class HyperImageRewrite {
         rd->SetFor("Mask", preserved_mask_ref->Clone());
     };
 
-    if (opts_.image_color_target == HYPERC_COLOR_TARGET_CMYK &&
-        final_bitmap && final_bitmap->GetBPP() >= 24) {
+    if (wants_cmyk && final_bitmap && final_bitmap->GetBPP() >= 24) {
       if (HyperConvertAndEmitCmyk(doc_, image, final_bitmap)) {
         reattach_masks();
         image_obj->CalcBoundingBox();
@@ -4521,7 +4602,7 @@ class HyperImageRewrite {
 
       if (!emitted) {
         const bool transformed =
-            needs_resize || needs_grayscale || was_clipped;
+            needs_resize || needs_grayscale || was_clipped || wants_rgb;
         const bool must_commit = was_clipped || needs_grayscale;
         if (!transformed && !HyperImageSourceIsLossy(image) &&
             !HyperImageSourceIsRawRecompressible(image) &&
@@ -4589,6 +4670,8 @@ class HyperImageRewrite {
     image_obj->SetDirty(true);
     return true;
   }
+
+  int report_page_ = 0;
 
   struct PendingJpx {
     RetainPtr<CPDF_Image> image;
@@ -5551,10 +5634,17 @@ class HyperMrcEncoder {
     RetainPtr<CFX_DIBitmap> bg = BuildBackgroundLayer(src, bg_w, bg_h, sel);
     if (!bg) return mrc_dbg("BuildBackgroundLayer null");
 
+    RetainPtr<CFX_DIBitmap> photo_mask;
+    if (opts_.mrc_detect_photos) {
+      photo_mask = BuildPhotoRegionMask(bg);
+      if (photo_mask && ClearSelectorInPhotos(sel, photo_mask)) {
+        bg = BuildBackgroundLayer(src, bg_w, bg_h, sel);
+        if (!bg) return mrc_dbg("BuildBackgroundLayer null");
+      }
+    }
+
     RetainPtr<CFX_DIBitmap> fg = BuildForegroundLayer(src, bg_w, bg_h, sel);
     if (!fg) return mrc_dbg("BuildForegroundLayer null");
-
-    RetainPtr<CFX_DIBitmap> photo_mask = BuildPhotoRegionMask(bg);
 
     size_t plain_estimate = 0;
     {
@@ -5840,6 +5930,36 @@ class HyperMrcEncoder {
       }
     }
     return fg;
+  }
+
+  static bool ClearSelectorInPhotos(const RetainPtr<CFX_DIBitmap>& sel,
+                                    const RetainPtr<CFX_DIBitmap>& photo) {
+    if (!sel || !photo || sel->GetBPP() != 1 || photo->GetBPP() != 1)
+      return false;
+    const int sw = sel->GetWidth(), sh = sel->GetHeight();
+    const int pw = photo->GetWidth(), ph = photo->GetHeight();
+    if (sw < 1 || sh < 1 || pw < 1 || ph < 1) return false;
+    bool cleared = false;
+    for (int y = 0; y < sh; ++y) {
+      const int py = std::min(ph - 1, static_cast<int>(
+                                          static_cast<int64_t>(y) * ph / sh));
+      pdfium::span<const uint8_t> prow = photo->GetScanline(py);
+      pdfium::span<uint8_t> srow = sel->GetWritableScanline(y);
+      if (prow.size() < static_cast<size_t>((pw + 7) / 8) ||
+          srow.size() < static_cast<size_t>((sw + 7) / 8))
+        return cleared;
+      for (int x = 0; x < sw; ++x) {
+        const uint8_t bit = static_cast<uint8_t>(0x80 >> (x % 8));
+        if (!(srow[x / 8] & bit)) continue;
+        const int px = std::min(pw - 1, static_cast<int>(
+                                            static_cast<int64_t>(x) * pw / sw));
+        if (!(prow[px / 8] & (0x80 >> (px % 8)))) {
+          srow[x / 8] &= static_cast<uint8_t>(~bit);
+          cleared = true;
+        }
+      }
+    }
+    return cleared;
   }
 
   RetainPtr<CFX_DIBitmap> BuildPhotoRegionMask(
@@ -6368,27 +6488,52 @@ class HyperCatalogDiscard {
       root->RemoveFor("AF");
     }
     if (mask & HYPERC_DISCARD_NAMED_DESTS) {
+      ResolveNamedDests(root.Get());
       root->RemoveFor("Dests");
+      RetainPtr<CPDF_Dictionary> names = root->GetMutableDictFor("Names");
+      if (names) {
+        names->RemoveFor("Dests");
+      }
     }
     if (mask & HYPERC_DISCARD_ACTIONS) {
       root->RemoveFor("OpenAction");
       root->RemoveFor("AA");
+      RetainPtr<CPDF_Dictionary> names = root->GetMutableDictFor("Names");
+      if (names) {
+        names->RemoveFor("JavaScript");
+      }
+      WalkOutlines(root.Get(), [](CPDF_Dictionary* item) {
+        StripScriptActions(item);
+      });
     }
     if (mask & HYPERC_DISCARD_PRINT_SETTING) {
-      root->RemoveFor("ViewerPreferences");
+      RetainPtr<CPDF_Dictionary> vp = root->GetMutableDictFor("ViewerPreferences");
+      if (vp) {
+        static const char* const kPrintKeys[] = {
+            "PrintScaling", "Duplex",     "PickTrayByPDFSize",
+            "PrintPageRange", "NumCopies", "PrintArea",
+            "PrintClip",
+        };
+        for (const char* key : kPrintKeys) {
+          vp->RemoveFor(key);
+        }
+        if (vp->size() == 0) {
+          root->RemoveFor("ViewerPreferences");
+        }
+      }
     }
     if (mask & HYPERC_DISCARD_INFO_METADATA) {
       root->RemoveFor("Metadata");
       RetainPtr<CPDF_Dictionary> info = doc_->GetInfo();
       if (info) {
-
-        static const char* const kInfoKeys[] = {
-            "Title",   "Author",       "Subject", "Keywords",
-            "Creator", "Producer",     "CreationDate",
-            "ModDate", "Trapped",
-        };
-        for (const char* key : kInfoKeys) {
-          info->RemoveFor(key);
+        std::vector<ByteString> keys;
+        {
+          CPDF_DictionaryLocker locker(info.Get());
+          for (const auto& it : locker)
+            keys.push_back(it.first);
+        }
+        for (const ByteString& key : keys) {
+          info->RemoveFor(key.AsStringView());
         }
       }
     }
@@ -6431,12 +6576,14 @@ class HyperCatalogDiscard {
       if (mask & HYPERC_DISCARD_ACTIONS) {
         page->RemoveFor("AA");
       }
+
       if (mask & HYPERC_DISCARD_STRUCT_TREE) {
         page->RemoveFor("StructParents");
       }
 
-      if ((mask & HYPERC_DISCARD_LINKS) ||
-          (mask & HYPERC_DISCARD_SIG_APPEARANCES)) {
+      if (mask & (HYPERC_DISCARD_LINKS | HYPERC_DISCARD_SIG_APPEARANCES |
+                  HYPERC_DISCARD_MARKUP_ANNOTS |
+                  HYPERC_DISCARD_FILE_ATTACHMENTS | HYPERC_DISCARD_ACTIONS)) {
         FilterAnnotsInPlace(page.Get(), mask);
       }
     }
@@ -6466,6 +6613,81 @@ class HyperCatalogDiscard {
   }
 
  private:
+  static bool IsScriptAction(const CPDF_Dictionary* action) {
+    if (!action) return false;
+    const ByteString s = action->GetNameFor("S");
+    return s == "JavaScript" || s == "Launch" || s == "ImportData" ||
+           s == "SubmitForm" || s == "Rendition" || s == "Movie" ||
+           s == "Sound";
+  }
+
+  static void StripScriptActions(CPDF_Dictionary* dict) {
+    if (!dict) return;
+    dict->RemoveFor("AA");
+    if (IsScriptAction(dict->GetDictFor("A").Get())) {
+      dict->RemoveFor("A");
+    }
+  }
+
+  template <typename Fn>
+  void WalkOutlines(CPDF_Dictionary* root, Fn fn) {
+    RetainPtr<CPDF_Dictionary> outlines = root->GetMutableDictFor("Outlines");
+    if (!outlines) return;
+    std::vector<RetainPtr<CPDF_Dictionary>> stack;
+    std::unordered_set<const CPDF_Dictionary*> seen;
+    stack.push_back(outlines->GetMutableDictFor("First"));
+    while (!stack.empty()) {
+      RetainPtr<CPDF_Dictionary> item = std::move(stack.back());
+      stack.pop_back();
+      if (!item || !seen.insert(item.Get()).second) continue;
+      fn(item.Get());
+      stack.push_back(item->GetMutableDictFor("Next"));
+      stack.push_back(item->GetMutableDictFor("First"));
+    }
+  }
+
+  RetainPtr<CPDF_Array> ExplicitDest(const CPDF_Object* dest) {
+    if (!dest || !(dest->IsName() || dest->IsString())) return nullptr;
+    RetainPtr<const CPDF_Array> found =
+        CPDF_NameTree::LookupNamedDest(doc_, dest->GetString());
+    return found ? ToArray(found->Clone()) : nullptr;
+  }
+
+  void ResolveDestIn(CPDF_Dictionary* dict) {
+    if (!dict) return;
+    if (RetainPtr<CPDF_Array> d =
+            ExplicitDest(dict->GetDirectObjectFor("Dest").Get())) {
+      dict->SetFor("Dest", std::move(d));
+    }
+    RetainPtr<CPDF_Dictionary> action = dict->GetMutableDictFor("A");
+    if (action && action->GetNameFor("S") == "GoTo") {
+      if (RetainPtr<CPDF_Array> d =
+              ExplicitDest(action->GetDirectObjectFor("D").Get())) {
+        action->SetFor("D", std::move(d));
+      }
+    }
+  }
+
+  void ResolveNamedDests(CPDF_Dictionary* root) {
+    WalkOutlines(root, [this](CPDF_Dictionary* item) { ResolveDestIn(item); });
+    RetainPtr<CPDF_Dictionary> open = root->GetMutableDictFor("OpenAction");
+    if (open && open->GetNameFor("S") == "GoTo") {
+      if (RetainPtr<CPDF_Array> d =
+              ExplicitDest(open->GetDirectObjectFor("D").Get())) {
+        open->SetFor("D", std::move(d));
+      }
+    }
+    const int page_count = doc_->GetPageCount();
+    for (int i = 0; i < page_count; ++i) {
+      RetainPtr<CPDF_Dictionary> page = doc_->GetMutablePageDictionary(i);
+      RetainPtr<CPDF_Array> annots =
+          page ? page->GetMutableArrayFor("Annots") : nullptr;
+      for (size_t j = 0; annots && j < annots->size(); ++j) {
+        RetainPtr<CPDF_Dictionary> ad = annots->GetMutableDictAt(j);
+        if (ad) ResolveDestIn(ad.Get());
+      }
+    }
+  }
 
   void FilterAnnotsInPlace(CPDF_Dictionary* page, uint32_t mask) {
     RetainPtr<CPDF_Array> annots = page->GetMutableArrayFor("Annots");
@@ -6484,14 +6706,22 @@ class HyperCatalogDiscard {
       ByteString subtype = ad->GetNameFor("Subtype");
       const bool is_widget = (subtype == "Widget");
       const bool is_link = (subtype == "Link");
-      if (is_widget && (mask & HYPERC_DISCARD_SIG_APPEARANCES)) {
-        ByteString ft = ad->GetNameFor("FT");
-        if (ft == "Sig") {
-          ad->RemoveFor("AP");
-        }
+      if (is_widget && (mask & HYPERC_DISCARD_SIG_APPEARANCES) &&
+          HyperWidgetIsSignature(ad.Get())) {
+        ad->RemoveFor("AP");
       }
       if (is_link && (mask & HYPERC_DISCARD_LINKS)) {
         continue;
+      }
+      if (!is_widget && !is_link && (mask & HYPERC_DISCARD_MARKUP_ANNOTS)) {
+        continue;
+      }
+      if (subtype == "FileAttachment" &&
+          (mask & HYPERC_DISCARD_FILE_ATTACHMENTS)) {
+        continue;
+      }
+      if (mask & HYPERC_DISCARD_ACTIONS) {
+        StripScriptActions(ad.Get());
       }
       kept.push_back(ent);
     }
@@ -7189,7 +7419,28 @@ namespace {
 
 using HyperDeviceSpaces = std::map<std::string, int, std::less<>>;
 
-HyperDeviceSpaces HyperDeviceSpacesOf(const CPDF_Dictionary* res) {
+int HyperIccSpaceComponents(const CPDF_Object* v) {
+  const CPDF_Array* arr = v ? v->AsArray() : nullptr;
+  if (!arr || arr->size() < 2)
+    return 0;
+  RetainPtr<const CPDF_Object> head = arr->GetDirectObjectAt(0);
+  if (!head || !head->IsName())
+    return 0;
+  const ByteString kind = head->GetString();
+  if (kind == "CalRGB")
+    return 3;
+  if (kind == "CalGray")
+    return 1;
+  if (kind != "ICCBased")
+    return 0;
+  RetainPtr<const CPDF_Stream> icc = arr->GetStreamAt(1);
+  RetainPtr<const CPDF_Dictionary> d = icc ? icc->GetDict() : nullptr;
+  const int n = d ? d->GetIntegerFor("N") : 0;
+  return (n == 1 || n == 3 || n == 4) ? n : 0;
+}
+
+HyperDeviceSpaces HyperDeviceSpacesOf(const CPDF_Dictionary* res,
+                                      bool include_icc = false) {
   HyperDeviceSpaces out;
   if (!res)
     return out;
@@ -7200,18 +7451,103 @@ HyperDeviceSpaces HyperDeviceSpacesOf(const CPDF_Dictionary* res) {
   for (const auto& it : locker) {
     RetainPtr<const CPDF_Object> v = it.second ? it.second->GetDirect() : nullptr;
     const CPDF_Name* n = v ? v->AsName() : nullptr;
-    if (!n)
-      continue;
-    const ByteString& name = n->GetString();
     int ncomp = 0;
-    if (name == "DeviceGray") ncomp = 1;
-    else if (name == "DeviceRGB") ncomp = 3;
-    else if (name == "DeviceCMYK") ncomp = 4;
+    if (n) {
+      const ByteString& name = n->GetString();
+      if (name == "DeviceGray") ncomp = 1;
+      else if (name == "DeviceRGB") ncomp = 3;
+      else if (name == "DeviceCMYK") ncomp = 4;
+    } else if (include_icc) {
+      ncomp = HyperIccSpaceComponents(v.Get());
+    }
     if (ncomp)
       out[std::string(it.first.c_str(), it.first.GetLength())] = ncomp;
   }
   return out;
 }
+
+class HyperColorConverter {
+ public:
+  explicit HyperColorConverter(int target) : target_(target) {
+    cmsHPROFILE srgb = cmsCreate_sRGBProfile();
+    cmsHPROFILE cmyk = cmsOpenProfileFromMem(
+        kHyperGenericCmykIcc,
+        static_cast<cmsUInt32Number>(kHyperGenericCmykIccLen));
+    cmsCIExyY d65 = {0.3127, 0.3290, 1.0};
+    cmsToneCurve* gamma = cmsBuildGamma(nullptr, 2.2);
+    cmsHPROFILE gray = gamma ? cmsCreateGrayProfile(&d65, gamma) : nullptr;
+    if (gamma) cmsFreeToneCurve(gamma);
+    if (srgb && cmyk && gray) {
+      const cmsUInt32Number flags = cmsFLAGS_NOCACHE;
+      if (target == HYPERC_COLOR_TARGET_SRGB) {
+        from_cmyk_ = cmsCreateTransform(cmyk, TYPE_CMYK_16, srgb, TYPE_RGB_16,
+                                        INTENT_PERCEPTUAL, flags);
+      } else if (target == HYPERC_COLOR_TARGET_CMYK) {
+        from_rgb_ = cmsCreateTransform(srgb, TYPE_RGB_16, cmyk, TYPE_CMYK_16,
+                                       INTENT_PERCEPTUAL, flags);
+      } else if (target == HYPERC_COLOR_TARGET_GRAY) {
+        from_rgb_ = cmsCreateTransform(srgb, TYPE_RGB_16, gray, TYPE_GRAY_16,
+                                       INTENT_PERCEPTUAL, flags);
+        from_cmyk_ = cmsCreateTransform(cmyk, TYPE_CMYK_16, gray, TYPE_GRAY_16,
+                                        INTENT_PERCEPTUAL, flags);
+      }
+    }
+    if (srgb) cmsCloseProfile(srgb);
+    if (cmyk) cmsCloseProfile(cmyk);
+    if (gray) cmsCloseProfile(gray);
+  }
+  ~HyperColorConverter() {
+    if (from_rgb_) cmsDeleteTransform(from_rgb_);
+    if (from_cmyk_) cmsDeleteTransform(from_cmyk_);
+  }
+  HyperColorConverter(const HyperColorConverter&) = delete;
+  HyperColorConverter& operator=(const HyperColorConverter&) = delete;
+
+  int ncomp() const {
+    if (target_ == HYPERC_COLOR_TARGET_SRGB && from_cmyk_) return 3;
+    if (target_ == HYPERC_COLOR_TARGET_CMYK && from_rgb_) return 4;
+    if (target_ == HYPERC_COLOR_TARGET_GRAY && from_rgb_ && from_cmyk_)
+      return 1;
+    return 0;
+  }
+
+  void Convert(int n_in, const double* in, double* out) const {
+    const int n_out = ncomp();
+    if (n_in == 3 && in[0] == in[1] && in[1] == in[2]) {
+      if (n_out == 4) {
+        out[0] = out[1] = out[2] = 0;
+        out[3] = 1.0 - in[0];
+        return;
+      }
+      if (n_out == 1) {
+        out[0] = in[0];
+        return;
+      }
+    }
+    if (n_in == 4 && in[0] == 0 && in[1] == 0 && in[2] == 0) {
+      for (int i = 0; i < n_out; ++i) out[i] = 1.0 - in[3];
+      return;
+    }
+    cmsHTRANSFORM xform = n_in == 3 ? from_rgb_ : from_cmyk_;
+    if (!xform) {
+      for (int i = 0; i < n_out; ++i) out[i] = 0;
+      return;
+    }
+    cmsUInt16Number src[4] = {0, 0, 0, 0};
+    cmsUInt16Number dst[4] = {0, 0, 0, 0};
+    for (int i = 0; i < n_in && i < 4; ++i) {
+      const double v = std::min(1.0, std::max(0.0, in[i]));
+      src[i] = static_cast<cmsUInt16Number>(std::lround(v * 65535.0));
+    }
+    cmsDoTransform(xform, src, dst, 1);
+    for (int i = 0; i < n_out; ++i) out[i] = dst[i] / 65535.0;
+  }
+
+ private:
+  int target_;
+  cmsHTRANSFORM from_rgb_ = nullptr;
+  cmsHTRANSFORM from_cmyk_ = nullptr;
+};
 
 struct HyperContentInfo {
   HyperDeviceSpaces dev;
@@ -7228,6 +7564,7 @@ struct HyperStreamJob {
   size_t current_size = 0;
   std::vector<uint8_t> output;
   bool compacted = false;
+  int converted = 0;
 };
 
 }
@@ -7237,11 +7574,20 @@ int HyperRecompressStreams(CPDF_Document* doc, const CompressOptions& opts) {
     return 0;
   const int threads = hyper_cs::ResolveThreadCount(opts.threads);
 
+  std::unique_ptr<HyperColorConverter> converter;
+  if (opts.convert_page_colors &&
+      opts.image_color_target != HYPERC_COLOR_TARGET_ORIGINAL) {
+    converter = std::make_unique<HyperColorConverter>(opts.image_color_target);
+    if (converter->ncomp() == 0)
+      converter.reset();
+  }
+  const bool converting = converter != nullptr;
+
   std::unordered_map<uint32_t, HyperContentInfo> content;
   auto add_content = [&](uint32_t objnum, const CPDF_Dictionary* res) {
     if (objnum == 0)
       return;
-    HyperDeviceSpaces dev = HyperDeviceSpacesOf(res);
+    HyperDeviceSpaces dev = HyperDeviceSpacesOf(res, converting);
     auto it = content.find(objnum);
     if (it == content.end()) {
       content[objnum].dev = std::move(dev);
@@ -7305,6 +7651,13 @@ int HyperRecompressStreams(CPDF_Document* doc, const CompressOptions& opts) {
   int replaced = 0;
   hyper_cs::CompactOptions base_copts;
   base_copts.precision = opts.content_precision;
+  if (converting) {
+    const HyperColorConverter* conv = converter.get();
+    base_copts.convert_ncomp = conv->ncomp();
+    base_copts.convert = [conv](int n_in, const double* in, double* out) {
+      conv->Convert(n_in, in, out);
+    };
+  }
 
   static constexpr size_t kBlockDeflateBytes = 8u * 1024 * 1024;
   auto deflate9 = [](const uint8_t* d, size_t n, int inner,
@@ -7320,6 +7673,7 @@ int HyperRecompressStreams(CPDF_Document* doc, const CompressOptions& opts) {
       case HyperStreamJobKind::kContent: {
         hyper_cs::CompactOptions co = base_copts;
         co.device_spaces = j.dev;
+        co.converted = &j.converted;
         std::string compact;
         const bool ok = hyper_cs::CompactContent(j.input.data(), j.input.size(),
                                                  co, &compact);
@@ -7328,6 +7682,7 @@ int HyperRecompressStreams(CPDF_Document* doc, const CompressOptions& opts) {
                    compact.size(), inner, &out);
           j.compacted = true;
         } else {
+          j.converted = 0;
           deflate9(j.input.data(), j.input.size(), inner, &out);
         }
         break;
@@ -7348,7 +7703,7 @@ int HyperRecompressStreams(CPDF_Document* doc, const CompressOptions& opts) {
         deflate9(j.input.data(), j.input.size(), inner, &out);
         break;
     }
-    if (!out.empty() && out.size() < j.current_size)
+    if (!out.empty() && (out.size() < j.current_size || j.converted > 0))
       j.output = std::move(out);
     j.input = DataVector<uint8_t>();
   };
@@ -7446,7 +7801,7 @@ int HyperRecompressStreams(CPDF_Document* doc, const CompressOptions& opts) {
       }
     }
     const size_t current = st->GetRawSize();
-    if (current < 64)
+    if (current < 64 && !(converting && content.count(i)))
       continue;
     HyperStreamJob job;
     job.objnum = i;
@@ -7774,6 +8129,10 @@ HyperCompress_SetOption(FPDF_COMPRESS_OPTIONS h, int option, int value) {
     case HYPERC_OPT_MRC_BG_DPI:           opts->mrc_bg_dpi = value; break;
     case HYPERC_OPT_MRC_BG_QUALITY:       opts->mrc_bg_quality = value; break;
     case HYPERC_OPT_MRC_FG_QUALITY:       opts->mrc_fg_quality = value; break;
+    case HYPERC_OPT_MRC_DETECT_PHOTOS:    opts->mrc_detect_photos = value; break;
+    case HYPERC_OPT_CONVERT_PAGE_COLORS:  opts->convert_page_colors = value; break;
+    case HYPERC_OPT_SPEED:                opts->speed = value; break;
+    case HYPERC_OPT_REPORT:               opts->report = value; break;
     case HYPERC_OPT_RECOMPRESS_CONTENT_STREAMS:
       opts->recompress_content_streams = value; break;
     case HYPERC_OPT_CONTENT_PRECISION:
@@ -7836,6 +8195,10 @@ HyperCompress_GetOption(FPDF_COMPRESS_OPTIONS h, int option) {
     case HYPERC_OPT_MRC_BG_DPI:           return opts->mrc_bg_dpi;
     case HYPERC_OPT_MRC_BG_QUALITY:       return opts->mrc_bg_quality;
     case HYPERC_OPT_MRC_FG_QUALITY:       return opts->mrc_fg_quality;
+    case HYPERC_OPT_MRC_DETECT_PHOTOS:    return opts->mrc_detect_photos;
+    case HYPERC_OPT_CONVERT_PAGE_COLORS:  return opts->convert_page_colors;
+    case HYPERC_OPT_SPEED:                return opts->speed;
+    case HYPERC_OPT_REPORT:               return opts->report;
     case HYPERC_OPT_RECOMPRESS_CONTENT_STREAMS:
       return opts->recompress_content_streams;
     case HYPERC_OPT_CONTENT_PRECISION:
@@ -7861,8 +8224,20 @@ FPDF_EXPORT int FPDF_CALLCONV
 HyperCompress_Execute(FPDF_DOCUMENT document, FPDF_COMPRESS_OPTIONS h) {
   CPDF_Document* doc = CPDFDocumentFromFPDFDocument(document);
   if (!doc) return 0;
-  CompressOptions* opts = GetOpts(h);
-  if (!opts) return 0;
+  const CompressOptions* raw_opts = GetOpts(h);
+  if (!raw_opts) return 0;
+  CompressOptions eff = *raw_opts;
+  if (eff.speed == HYPERC_SPEED_FAST) {
+    eff.image_prefer_jpx = 0;
+    eff.image_lossy_index = 0;
+    eff.reduce_color_complexity = 0;
+  } else if (eff.speed == HYPERC_SPEED_QUALITY &&
+             eff.image_encoding == HYPERC_IMAGE_ENCODING_AUTO) {
+    if (eff.pdfa_mode == 0) eff.image_prefer_jpx = 1;
+    if (eff.image_lossy_index <= 0) eff.image_lossy_index = 10;
+    eff.reduce_color_complexity = 1;
+  }
+  const CompressOptions* opts = &eff;
 
   const bool remove_signatures =
       (opts->discard_mask & HYPERC_DISCARD_SIGNATURES) != 0;

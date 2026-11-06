@@ -18,6 +18,8 @@ export function targetLadder(base: HyperCompressOptions): HyperCompressOptions[]
     ...base,
     imageQuality: TARGET_QUALITY_FLOOR,
     maxDpi: dpi,
+    maxDpiColor: 0,
+    maxDpiGray: 0,
     forceDownsample: true,
   }));
 }

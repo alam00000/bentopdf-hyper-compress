@@ -12,6 +12,7 @@ export interface Parsed {
   password: string | null;
   overrides: Record<string, number | boolean | string>;
   targetSizeBytes?: number | undefined;
+  report?: string | undefined;
   help: boolean;
   version: boolean;
 }
@@ -22,7 +23,7 @@ const USAGE =
   'usage: hyper <input.pdf> [output.pdf] [--preset low|medium|high|lossless]\n' +
   '                                      [--password PW] [--set key=value ...]\n' +
   '                                      [--brotli] [--mrc off|auto|force]\n' +
-  '                                      [--target-size N[KB|MB]]\n';
+  '                                      [--target-size N[KB|MB]] [--report FILE]\n';
 
 const HELP = `hyper - high fidelity, content preserving PDF compression
 
@@ -34,6 +35,7 @@ options:
   --brotli              PDF 2.0 Brotli streams; the reader must support them
   --mrc <mode>          mixed raster content for scans: off (default), auto
                         (single-image scanned pages) or force (every page)
+  --report <file.json>  write a JSON report of fonts, images and cleanups
   --set <key=value>     override any engine option; repeatable
   -h, --help            show this help
   -v, --version         show the version
@@ -49,6 +51,8 @@ examples:
   hyper scan.pdf out.pdf --mrc auto --set mrcBackgroundDpi=70
   hyper locked.pdf out.pdf --password hunter2
   hyper in.pdf out.pdf --set grayscale=true --set imageQuality=40
+  hyper in.pdf out.pdf --set colorTarget=cmyk --set linearize=true
+  hyper in.pdf out.pdf --report report.json
 
 The output is never larger than the input, signed documents are returned
 untouched, and anything skipped for safety is reported as a warning.
@@ -116,6 +120,10 @@ export function parse(argv: string[]): Parsed {
       const mult = unit.startsWith('k') ? 1024 : unit.startsWith('m') ? 1024 * 1024 : 1;
       p.targetSizeBytes = Math.floor(Number(m[1]) * mult);
       if (!(p.targetSizeBytes > 0)) usage('--target-size must be greater than zero');
+    } else if (a === '--report') {
+      const v = argv[++i];
+      if (!v) usage('--report expects a file path');
+      p.report = v;
     } else if (a === '--set') {
       const kv = argv[++i] ?? '';
       const eq = kv.indexOf('=');
@@ -154,6 +162,7 @@ async function main(): Promise<void> {
     password: p.password,
     options: p.overrides as never,
     targetSizeBytes: p.targetSizeBytes,
+    report: p.report,
   });
   for (const w of res.warnings) {
     process.stderr.write(`warning: ${w}\n`);

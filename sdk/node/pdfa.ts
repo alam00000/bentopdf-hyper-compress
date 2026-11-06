@@ -43,6 +43,16 @@ export function conformanceSafeOptions(
 
   safe.rasterizePages = false;
 
+  safe.removeMetadata = false;
+
+  safe.colorTarget = 'original';
+
+  safe.linearize = false;
+
+  if (level.part < 4 && safe.minVersion === '2.0') {
+    safe.minVersion = 'none';
+  }
+
   if (level.part === 1) {
     safe.preferJpx = false;
 
@@ -54,6 +64,43 @@ export function conformanceSafeOptions(
   }
 
   return safe;
+}
+
+export function conformanceWarnings(
+  requested: HyperCompressOptions,
+  safe: HyperCompressOptions,
+): string[] {
+  const warnings: string[] = [];
+  if (requested.rasterizePages && !safe.rasterizePages) {
+    warnings.push('rasterizePages disabled to preserve PDF/A conformance');
+  }
+  if (requested.brotli) {
+    warnings.push('brotli disabled to preserve PDF/A conformance');
+  }
+  if (requested.removeMetadata && !safe.removeMetadata) {
+    warnings.push('removeMetadata refused: PDF/A requires the XMP metadata packet');
+  }
+  if (requested.colorTarget !== safe.colorTarget) {
+    warnings.push('colorTarget ignored to preserve PDF/A conformance');
+  }
+  if (requested.linearize && !safe.linearize) {
+    warnings.push('linearize skipped to preserve PDF/A conformance');
+  }
+  if (requested.minVersion !== safe.minVersion) {
+    warnings.push(`minVersion ${requested.minVersion} refused: this PDF/A level requires a 1.x header`);
+  }
+  return warnings;
+}
+
+export function raiseHeaderVersion(output: Uint8Array, minVersion: string): Uint8Array {
+  if (!/^\d\.\d$/.test(minVersion) || output.length < 8) return output;
+  let header = '';
+  for (let i = 0; i < 8; i++) header += String.fromCharCode(output[i] ?? 0);
+  const m = /^%PDF-(\d\.\d)$/.exec(header);
+  if (!m?.[1] || Number(m[1]) >= Number(minVersion)) return output;
+  const patched = output.slice();
+  for (let i = 0; i < 3; i++) patched[5 + i] = minVersion.charCodeAt(i);
+  return patched;
 }
 
 export function packAllowedWhilePreserving(): boolean {

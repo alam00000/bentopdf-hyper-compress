@@ -437,11 +437,12 @@ bool CompactContent(const uint8_t* data,
     if (ncomp == 3) return stroke ? "RG" : "rg";
     return stroke ? "K" : "k";
   };
-  auto initial_color = [](int ncomp) -> const char* {
-    if (ncomp == 1) return "0";
-    if (ncomp == 3) return "0 0 0";
-    return "0 0 0 1";
+  auto initial_color = [](int ncomp) -> std::vector<std::string> {
+    if (ncomp == 1) return {"0"};
+    if (ncomp == 3) return {"0", "0", "0"};
+    return {"0", "0", "0", "1"};
   };
+  const bool converting = opts.convert_ncomp > 0 && opts.convert;
 
   Lexer lx(data, size);
   std::vector<Operand> operands;
@@ -454,29 +455,55 @@ bool CompactContent(const uint8_t* data,
   int pending_fill = 0;
   int pending_stroke = 0;
 
-  auto flush_pending = [&]() {
-    if (pending_fill) {
-      out->append(initial_color(pending_fill));
-      out->push_back(' ');
-      out->append(device_op(pending_fill, false));
-      out->push_back('\n');
-      pending_fill = 0;
+  int fill_space = 0;
+  int stroke_space = 0;
+  std::vector<std::pair<int, int>> space_stack;
+
+  auto emit = [&](const std::vector<std::string>& opnds_in,
+                  std::string_view op) {
+    const std::vector<std::string>* opnds = &opnds_in;
+    std::vector<std::string> conv;
+    if (converting) {
+      int n_in = 0;
+      if (op == "g" || op == "G") n_in = 1;
+      else if (op == "rg" || op == "RG") n_in = 3;
+      else if (op == "k" || op == "K") n_in = 4;
+      const bool stroke = op == "G" || op == "RG" || op == "K";
+      bool numeric = n_in > 0 && opnds_in.size() == static_cast<size_t>(n_in);
+      for (size_t i = 0; numeric && i < opnds_in.size(); ++i)
+        numeric = IsNumberText(opnds_in[i]);
+      if (numeric && n_in != 1 && n_in != opts.convert_ncomp) {
+        double in[4] = {0, 0, 0, 0};
+        double res[4] = {0, 0, 0, 0};
+        for (int i = 0; i < n_in; ++i) in[i] = ParseNumber(opnds_in[i]);
+        opts.convert(n_in, in, res);
+        for (int i = 0; i < opts.convert_ncomp; ++i) {
+          const double v = std::min(1.0, std::max(0.0, res[i]));
+          conv.push_back(RoundNumber(FormatDouble(v), 99, 0, 3));
+        }
+        opnds = &conv;
+        op = device_op(opts.convert_ncomp, stroke);
+        if (opts.converted) ++*opts.converted;
+      }
+      if (n_in) (stroke ? stroke_space : fill_space) = numeric ? n_in : 0;
     }
-    if (pending_stroke) {
-      out->append(initial_color(pending_stroke));
-      out->push_back(' ');
-      out->append(device_op(pending_stroke, true));
-      out->push_back('\n');
-      pending_stroke = 0;
-    }
-  };
-  auto emit = [&](const std::vector<std::string>& opnds, std::string_view op) {
     std::string line;
-    for (const std::string& o : opnds) AppendJoined(&line, o);
+    for (const std::string& o : *opnds) AppendJoined(&line, o);
     if (!line.empty() && !EndsTight(line)) line.push_back(' ');
     line.append(op.data(), op.size());
     line.push_back('\n');
     out->append(line);
+  };
+
+  auto flush_pending = [&]() {
+    if (pending_fill) {
+      emit(initial_color(pending_fill), device_op(pending_fill, false));
+      pending_fill = 0;
+    }
+    if (pending_stroke) {
+      emit(initial_color(pending_stroke), device_op(pending_stroke, true));
+      pending_stroke = 0;
+    }
   };
   auto all_numbers = [&](size_t n) {
     if (operands.size() != n) return false;
@@ -564,6 +591,31 @@ bool CompactContent(const uint8_t* data,
       continue;
     }
     flush_pending();
+    if (converting) {
+      if ((op == "sc" || op == "scn") && fill_space &&
+          all_numbers(static_cast<size_t>(fill_space))) {
+        emit(f, device_op(fill_space, false));
+        operands.clear();
+        continue;
+      }
+      if ((op == "SC" || op == "SCN") && stroke_space &&
+          all_numbers(static_cast<size_t>(stroke_space))) {
+        emit(f, device_op(stroke_space, true));
+        operands.clear();
+        continue;
+      }
+      if (op == "q") {
+        space_stack.emplace_back(fill_space, stroke_space);
+      } else if (op == "Q" && !space_stack.empty()) {
+        fill_space = space_stack.back().first;
+        stroke_space = space_stack.back().second;
+        space_stack.pop_back();
+      } else if (op == "cs") {
+        fill_space = 0;
+      } else if (op == "CS") {
+        stroke_space = 0;
+      }
+    }
     if ((op == "cs" || op == "CS") && operands.size() == 1 &&
         operands[0].kind == OpndKind::kName) {
       const int n = device_ncomp(DecodeName(operands[0].text));

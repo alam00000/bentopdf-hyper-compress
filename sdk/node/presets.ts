@@ -3,17 +3,22 @@ import type { HyperCompressOptions } from './options.js';
 export type CompressLevel = 'low' | 'medium' | 'high' | 'lossless';
 
 const PRESET_BASE: HyperCompressOptions = {
-  imageQuality: 50, maxDpi: 150, lossless: false, grayscale: false,
+  imageQuality: 50, maxDpi: 150, maxDpiColor: 0, maxDpiGray: 0, maxDpiMono: 0,
+  thresholdDpi: 0, colorTarget: 'original', jpegSubsampling: 'auto',
+  jpegProgressive: false, speed: 'balanced', lossless: false, grayscale: false,
   forceDownsample: false, reduceColor: true, clipImages: true,
   removeAlternates: false, flattenIcc: true, preferJpx: true,
   subsetFonts: true, removeStandardFonts: false, unembedAliasedFonts: false,
   rasterizePages: false, rasterizeDpi: 150, rasterizeQuality: 50, rasterizeText: false,
-  mergeFonts: true, removeAnnots: false, flattenForms: false,
+  mergeFonts: true, annotations: 'keep', removeAnnots: false, flattenForms: false,
   flattenLinks: false, removeSignatures: false, removeThumbnails: true, removeAppData: true,
   removeStructTree: false, removeThreads: false, removeSpiderInfo: false,
-  removeOutputIntents: false,
-  preserveConformance: false, brotli: false,
+  removeOutputIntents: false, removeMetadata: false, removeBookmarks: false,
+  removeAttachments: false, removeActions: false, removeNamedDests: false,
+  removePrintSettings: false, removeSearchIndex: false, removeSignatureAppearances: false,
+  preserveConformance: false, brotli: false, linearize: false, minVersion: 'none',
   mrc: 'off', mrcBackgroundDpi: 75, mrcBackgroundQuality: 30, mrcForegroundQuality: 50,
+  mrcDetectPhotos: true,
   contentPrecision: 6,
 };
 

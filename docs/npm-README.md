@@ -182,7 +182,8 @@ For image-only documents such as scans and print-to-PDF output. The engine refus
 
 | Option | Type | Default | What it does |
 |---|---|---|---|
-| `removeAnnots` | boolean | false | Remove comments and other annotations. |
+| `annotations` | `keep`, `flatten`, `remove` | keep | What happens to comments and other markup annotations. Form fields and links are never touched. |
+| `removeAnnots` | boolean | false | Deprecated, use `annotations`. `true` behaves like `annotations: 'flatten'`, which is what it always did. |
 | `flattenForms` | boolean | false | Flatten form fields into page content. Form fields stop being fillable. |
 | `flattenLinks` | boolean | false | Flatten link annotations. Links stop being clickable. |
 | `removeSignatures` | boolean | false | Remove digital signatures so a signed document can be compressed instead of returned untouched. The visible signature stays on the page, but the file is no longer signed and can be signed again. |
