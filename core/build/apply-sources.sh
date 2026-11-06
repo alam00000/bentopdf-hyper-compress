@@ -43,6 +43,12 @@ perl -pi -e \
   's|core/fxcodec/jbig2/JBig2_DocumentContext\.h|core/fxcodec/jbig2/jbig2_document_context.h|; s|third_party/harfbuzz-ng/src/src/|third_party/harfbuzz/src/src/|g;' \
   "$SRC/fpdfsdk/fpdf_compress.cpp"
 
+echo "==> zlib canonical match finder"
+ZBUILD="$SRC/third_party/zlib/BUILD.gn"
+grep -q USE_ZLIB_RABIN_KARP_ROLLING_HASH "$ZBUILD" ||
+  perl -0pi -e 's|(config\("zlib_internal_config"\) \{\n  defines = \[ "ZLIB_IMPLEMENTATION")|$1, "USE_ZLIB_RABIN_KARP_ROLLING_HASH"|' "$ZBUILD"
+grep -q USE_ZLIB_RABIN_KARP_ROLLING_HASH "$ZBUILD" || { echo "ERROR: could not set the zlib hash define in $ZBUILD"; exit 1; }
+
 echo "==> Vendored third_party (afdko / jbig2enc / leptonica)"
 for d in afdko jbig2enc leptonica; do
   if command -v rsync >/dev/null 2>&1; then
