@@ -46,7 +46,7 @@ perl -pi -e \
 echo "==> zlib canonical match finder"
 ZBUILD="$SRC/third_party/zlib/BUILD.gn"
 grep -q USE_ZLIB_RABIN_KARP_ROLLING_HASH "$ZBUILD" ||
-  perl -0pi -e 's|(config\("zlib_internal_config"\) \{\n  defines = \[ "ZLIB_IMPLEMENTATION")|$1, "USE_ZLIB_RABIN_KARP_ROLLING_HASH"|' "$ZBUILD"
+  perl -0pi -e 's|(config\("zlib_internal_config"\) \{\r?\n  defines = \[ "ZLIB_IMPLEMENTATION")|$1, "USE_ZLIB_RABIN_KARP_ROLLING_HASH"|' "$ZBUILD"
 grep -q USE_ZLIB_RABIN_KARP_ROLLING_HASH "$ZBUILD" || { echo "ERROR: could not set the zlib hash define in $ZBUILD"; exit 1; }
 
 echo "==> Vendored third_party (afdko / jbig2enc / leptonica)"
