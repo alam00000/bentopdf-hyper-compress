@@ -68,6 +68,7 @@
   "overrides": {
     "vitepress": {
       "vite": "^6.4.5"
-    }
+    },
+    "minimatch": "^11.0.1"
   }
 }
