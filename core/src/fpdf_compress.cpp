@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <limits>
 #include <cstdint>
 #include <cstring>
 #include <deque>
@@ -2608,6 +2609,12 @@ bool HyperJpegliEncode(const uint8_t* src, int width, int height, int stride,
                        int progressive, int subsample, uint8_t** out_buf,
                        size_t* out_len);
 void HyperJpegliFree(void* p);
+bool HyperJpegliDecodeCmyk(const uint8_t* data, size_t len,
+                           int color_transform, uint8_t** out_buf,
+                           int* out_w, int* out_h, int* saw_adobe);
+bool HyperJpegliEncodeCmyk(const uint8_t* src, int width, int height,
+                           int quality, int adobe_marker, uint8_t** out_buf,
+                           size_t* out_len);
 }
 
 bool HyperOverwriteJpegInPlace(CPDF_Document* doc,
@@ -3765,6 +3772,194 @@ class HyperImageRewrite {
         reinterpret_cast<const uint8_t*>(pr.content.data()), pr.content.size()));
   }
 
+  bool HyperLoadCmyk(const RetainPtr<CPDF_Image>& image,
+                     const CPDF_Dictionary* dict, int w, int h,
+                     std::vector<uint8_t>* out, bool* from_dct) {
+    if (!image || !dict || !out || !from_dct || w < 1 || h < 1)
+      return false;
+    if (dict->GetIntegerFor("BitsPerComponent") != 8)
+      return false;
+    RetainPtr<const CPDF_Stream> stream = image->GetStream();
+    if (!stream)
+      return false;
+    const size_t need = static_cast<size_t>(w) * h * 4;
+    auto acc = pdfium::MakeRetain<CPDF_StreamAcc>(stream);
+    acc->LoadAllDataImageAcc(static_cast<uint32_t>(
+        std::min<size_t>(need, std::numeric_limits<uint32_t>::max())));
+    pdfium::span<const uint8_t> src = acc->GetSpan();
+    const ByteString decoder = acc->GetImageDecoder();
+    if (decoder.IsEmpty()) {
+      if (src.size() < need)
+        return false;
+      out->assign(src.data(), src.data() + need);
+      *from_dct = false;
+      return true;
+    }
+    if (decoder != "DCTDecode" || src.empty())
+      return false;
+    int transform = -1;
+    if (RetainPtr<const CPDF_Dictionary> parm = acc->GetImageParam()) {
+      if (parm->KeyExist("ColorTransform"))
+        transform = parm->GetIntegerFor("ColorTransform") ? 1 : 0;
+    }
+    uint8_t* px = nullptr;
+    int dw = 0, dh = 0, adobe = 0;
+    if (!HyperJpegliDecodeCmyk(src.data(), src.size(), transform, &px, &dw,
+                               &dh, &adobe))
+      return false;
+    const bool ok = px && dw == w && dh == h;
+    if (ok) {
+      out->assign(px, px + need);
+      if (!adobe) {
+        for (uint8_t& v : *out)
+          v = static_cast<uint8_t>(255 - v);
+      }
+    }
+    HyperJpegliFree(px);
+    *from_dct = true;
+    return ok;
+  }
+
+  static void HyperCmykWeights(int src_off, int src_len, int dst_len,
+                               std::vector<int>* first,
+                               std::vector<int>* count,
+                               std::vector<float>* weights, int* taps) {
+    const double scale = static_cast<double>(src_len) / dst_len;
+    const double support = 3.0 * std::max(1.0, scale);
+    const double fscale = std::max(1.0, scale);
+    *taps = static_cast<int>(std::ceil(support)) * 2 + 1;
+    first->assign(dst_len, 0);
+    count->assign(dst_len, 0);
+    weights->assign(static_cast<size_t>(dst_len) * *taps, 0.0f);
+    for (int i = 0; i < dst_len; ++i) {
+      const double center = (i + 0.5) * scale;
+      int lo = static_cast<int>(std::floor(center - support));
+      int hi = static_cast<int>(std::ceil(center + support));
+      lo = std::max(lo, 0);
+      hi = std::min(hi, src_len);
+      double total = 0.0;
+      float* w = weights->data() + static_cast<size_t>(i) * *taps;
+      int n = 0;
+      for (int j = lo; j < hi && n < *taps; ++j, ++n) {
+        const double x = (j + 0.5 - center) / fscale;
+        double v = 0.0;
+        if (x == 0.0) {
+          v = 1.0;
+        } else if (std::fabs(x) < 3.0) {
+          const double px = 3.14159265358979323846 * x;
+          v = 3.0 * std::sin(px) * std::sin(px / 3.0) / (px * px);
+        }
+        w[n] = static_cast<float>(v);
+        total += v;
+      }
+      if (total != 0.0) {
+        for (int k = 0; k < n; ++k) w[k] = static_cast<float>(w[k] / total);
+      }
+      (*first)[i] = src_off + lo;
+      (*count)[i] = n;
+    }
+  }
+
+  static void HyperResampleCmyk(const std::vector<uint8_t>& src, int sw,
+                                int x0, int y0, int rw, int rh, int tw,
+                                int th, std::vector<uint8_t>* dst) {
+    std::vector<int> fx, cx, fy, cy;
+    std::vector<float> wx, wy;
+    int tx_taps = 0, ty_taps = 0;
+    HyperCmykWeights(x0, rw, tw, &fx, &cx, &wx, &tx_taps);
+    HyperCmykWeights(y0, rh, th, &fy, &cy, &wy, &ty_taps);
+    std::vector<float> mid(static_cast<size_t>(tw) * rh * 4);
+    for (int y = 0; y < rh; ++y) {
+      const uint8_t* row = src.data() + static_cast<size_t>(y0 + y) * sw * 4;
+      float* out = mid.data() + static_cast<size_t>(y) * tw * 4;
+      for (int x = 0; x < tw; ++x) {
+        const float* w = wx.data() + static_cast<size_t>(x) * tx_taps;
+        float acc[4] = {0, 0, 0, 0};
+        const uint8_t* p = row + static_cast<size_t>(fx[x]) * 4;
+        for (int k = 0; k < cx[x]; ++k, p += 4) {
+          acc[0] += w[k] * p[0];
+          acc[1] += w[k] * p[1];
+          acc[2] += w[k] * p[2];
+          acc[3] += w[k] * p[3];
+        }
+        for (int c = 0; c < 4; ++c) out[x * 4 + c] = acc[c];
+      }
+    }
+    dst->assign(static_cast<size_t>(tw) * th * 4, 0);
+    for (int y = 0; y < th; ++y) {
+      const float* w = wy.data() + static_cast<size_t>(y) * ty_taps;
+      uint8_t* out = dst->data() + static_cast<size_t>(y) * tw * 4;
+      for (int x = 0; x < tw; ++x) {
+        float acc[4] = {0, 0, 0, 0};
+        for (int k = 0; k < cy[y]; ++k) {
+          const float* p =
+              mid.data() + (static_cast<size_t>(fy[y] - y0 + k) * tw + x) * 4;
+          acc[0] += w[k] * p[0];
+          acc[1] += w[k] * p[1];
+          acc[2] += w[k] * p[2];
+          acc[3] += w[k] * p[3];
+        }
+        for (int c = 0; c < 4; ++c) {
+          const float v = acc[c] + 0.5f;
+          out[x * 4 + c] =
+              static_cast<uint8_t>(v <= 0.0f ? 0 : (v >= 255.0f ? 255 : v));
+        }
+      }
+    }
+  }
+
+  bool HyperEmitCmyk(RetainPtr<CPDF_Image> image,
+                     const CPDF_Dictionary* orig_dict,
+                     const std::vector<uint8_t>& px, int w, int h,
+                     bool from_dct, size_t budget) {
+    if (!image || !orig_dict || w < 1 || h < 1 ||
+        px.size() < static_cast<size_t>(w) * h * 4)
+      return false;
+    DataVector<uint8_t> best;
+    bool best_is_jpeg = false;
+    uint8_t* jl = nullptr;
+    size_t jl_len = 0;
+    if (HyperJpegliEncodeCmyk(px.data(), w, h, opts_.image_quality, 1, &jl,
+                              &jl_len) &&
+        jl && jl_len) {
+      best = DataVector<uint8_t>(jl, jl + jl_len);
+      best_is_jpeg = true;
+    }
+    if (jl)
+      HyperJpegliFree(jl);
+    if (!from_dct) {
+      DataVector<uint8_t> flate = FlateModule::Encode(
+          pdfium::span<const uint8_t>(px.data(), px.size()));
+      if (!flate.empty() && (best.empty() || flate.size() <= best.size())) {
+        best = std::move(flate);
+        best_is_jpeg = false;
+      }
+    }
+    if (best.empty() || (budget && best.size() >= budget))
+      return false;
+    auto dict = doc_->New<CPDF_Dictionary>();
+    dict->SetNewFor<CPDF_Name>("Type", "XObject");
+    dict->SetNewFor<CPDF_Name>("Subtype", "Image");
+    dict->SetNewFor<CPDF_Number>("Width", w);
+    dict->SetNewFor<CPDF_Number>("Height", h);
+    dict->SetNewFor<CPDF_Number>("BitsPerComponent", 8);
+    if (RetainPtr<const CPDF_Object> cs = orig_dict->GetObjectFor("ColorSpace"))
+      dict->SetFor("ColorSpace", cs->Clone());
+    if (RetainPtr<const CPDF_Object> dec = orig_dict->GetObjectFor("Decode"))
+      dict->SetFor("Decode", dec->Clone());
+    if (RetainPtr<const CPDF_Object> intent = orig_dict->GetObjectFor("Intent"))
+      dict->SetFor("Intent", intent->Clone());
+    if (best_is_jpeg) {
+      dict->SetNewFor<CPDF_Name>("Filter", "DCTDecode");
+      auto parms = dict->SetNewFor<CPDF_Dictionary>("DecodeParms");
+      parms->SetNewFor<CPDF_Number>("ColorTransform", 0);
+    } else {
+      dict->SetNewFor<CPDF_Name>("Filter", "FlateDecode");
+    }
+    return image->OverwriteStreamInPlace(std::move(best), std::move(dict),
+                                           false);
+  }
+
   bool HyperEmitSpotResampled(RetainPtr<CPDF_Image> image,
                               RetainPtr<const CPDF_Dictionary> img_dict,
                               int src_w, int src_h, int tw, int th, int n) {
@@ -4405,6 +4600,8 @@ class HyperImageRewrite {
     const bool wants_rgb =
         opts_.image_color_target == HYPERC_COLOR_TARGET_SRGB &&
         source_is_cmyk && source->GetBPP() >= 24;
+    const bool keep_cmyk = source_is_cmyk && source->GetBPP() >= 24 &&
+                           !wants_rgb && !wants_gray;
 
     bool was_clipped = false;
     double crop_x[6] = {1, 0, 0, 1, 0, 0};
@@ -4453,6 +4650,7 @@ class HyperImageRewrite {
         !wants_mono_recompress) {
       return false;
     }
+    if (keep_cmyk && !needs_resize && !was_clipped) return false;
 
     if (source_is_indexed && !needs_resize && !needs_grayscale &&
         !was_clipped && !wants_cmyk && !source_photographic) {
@@ -4479,6 +4677,35 @@ class HyperImageRewrite {
 
       final_bitmap = pdfium::MakeRetain<CFX_DIBitmap>();
       if (!final_bitmap->Copy(source)) return false;
+    }
+
+    std::vector<uint8_t> cmyk_px;
+    bool cmyk_from_dct = false;
+    size_t cmyk_budget = 0;
+    if (keep_cmyk) {
+      if (reduce != 1 || !final_bitmap) return false;
+      std::vector<uint8_t> full;
+      if (!HyperLoadCmyk(image, spot_img_dict.Get(), src_w, src_h, &full,
+                         &cmyk_from_dct))
+        return false;
+      int x0 = 0, y0 = 0, rw = src_w, rh = src_h;
+      if (was_clipped) {
+        x0 = std::max(0, static_cast<int>(std::floor(crop.l * src_w)));
+        y0 = std::max(0,
+                      static_cast<int>(std::floor((1.0f - crop.t) * src_h)));
+        const int x1 =
+            std::min(src_w, static_cast<int>(std::ceil(crop.r * src_w)));
+        const int y1 = std::min(
+            src_h, static_cast<int>(std::ceil((1.0f - crop.b) * src_h)));
+        rw = x1 - x0;
+        rh = y1 - y0;
+        if (rw < 1 || rh < 1) return false;
+      }
+      HyperResampleCmyk(full, src_w, x0, y0, rw, rh, final_bitmap->GetWidth(),
+                        final_bitmap->GetHeight(), &cmyk_px);
+      RetainPtr<const CPDF_Stream> orig_stream = image->GetStream();
+      cmyk_budget = orig_stream ? orig_stream->GetRawSize() : 0;
+      if (!cmyk_budget) return false;
     }
 
     if (needs_resize && !was_clipped && preserved_smask_ref) {
@@ -4526,6 +4753,18 @@ class HyperImageRewrite {
       if (preserved_mask_ref && !rd->KeyExist("Mask"))
         rd->SetFor("Mask", preserved_mask_ref->Clone());
     };
+
+    if (keep_cmyk && !cmyk_px.empty()) {
+      if (HyperEmitCmyk(image, spot_img_dict.Get(), cmyk_px,
+                        final_bitmap->GetWidth(), final_bitmap->GetHeight(),
+                        cmyk_from_dct, was_clipped ? 0 : cmyk_budget)) {
+        reattach_masks();
+        image_obj->CalcBoundingBox();
+        image_obj->SetDirty(true);
+        return true;
+      }
+      if (!was_clipped) return false;
+    }
 
     if (wants_cmyk && final_bitmap && final_bitmap->GetBPP() >= 24) {
       if (HyperConvertAndEmitCmyk(doc_, image, final_bitmap)) {
