@@ -276,7 +276,7 @@ Fuzzing runs through ClusterFuzzLite on every pull request that touches the engi
 
 Hyper Compress is licensed under the [GNU AGPL v3](https://github.com/alam00000/bentopdf-hyper-compress/blob/main/LICENSE).
 
-If you need to use Hyper Compress in a proprietary or closed-source product, a commercial license is available. Contact us at [contact@bentopdf.com](mailto:contact@bentopdf.com).
+If you need to use Hyper Compress in a proprietary or closed-source product, [commercial licenses](https://www.bentopdf.com/hyper-compress#pricing) are available as annual subscriptions from $99/year, under the [Hyper Compress Commercial License](COMMERCIAL-LICENSE.md). For OEM terms, contact us at [contact@bentopdf.com](mailto:contact@bentopdf.com).
 
 Bundled third-party components retain their own licenses. See [NOTICE.md](https://github.com/alam00000/bentopdf-hyper-compress/blob/main/NOTICE.md) for the full list.
 

@@ -8,7 +8,7 @@ The engine and everything in the [repository](https://github.com/alam00000/bento
 
 ## Commercial license
 
-If you want to use Hyper Compress inside a proprietary or closed-source product, or offer it as part of a service without AGPL obligations, a commercial license is available. Contact us at [contact@bentopdf.com](mailto:contact@bentopdf.com).
+If you want to use Hyper Compress inside a proprietary or closed-source product, or offer it as part of a service without AGPL obligations, commercial licenses are available as [annual subscriptions from $99/year](https://www.bentopdf.com/hyper-compress#pricing), under the [Hyper Compress Commercial License](https://github.com/alam00000/bentopdf-hyper-compress/blob/main/COMMERCIAL-LICENSE.md). For OEM terms, contact us at [contact@bentopdf.com](mailto:contact@bentopdf.com).
 
 ## Third-party components
 
