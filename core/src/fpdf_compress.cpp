@@ -3788,10 +3788,14 @@ class HyperImageRewrite {
         std::min<size_t>(need, std::numeric_limits<uint32_t>::max())));
     pdfium::span<const uint8_t> src = acc->GetSpan();
     const ByteString decoder = acc->GetImageDecoder();
-    if (decoder.IsEmpty()) {
-      if (src.size() < need)
+    if (decoder.IsEmpty() || decoder == "FlateDecode" ||
+        decoder == "RunLengthDecode") {
+      auto full = pdfium::MakeRetain<CPDF_StreamAcc>(stream);
+      full->LoadAllDataFiltered();
+      pdfium::span<const uint8_t> raw = full->GetSpan();
+      if (raw.size() < need)
         return false;
-      out->assign(src.data(), src.data() + need);
+      out->assign(raw.data(), raw.data() + need);
       *from_dct = false;
       return true;
     }
