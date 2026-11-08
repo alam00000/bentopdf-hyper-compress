@@ -16,6 +16,32 @@ Try it at [hyper.bentopdf.com](https://hyper.bentopdf.com). Full documentation l
 
 ---
 
+## 📜 Licensing
+
+Hyper Compress is **dual-licensed** to fit your needs:
+
+| License | Best For | Price |
+| --- | --- | --- |
+| **AGPL-3.0** | Open-source projects with public source code | **Free** |
+| **Commercial** | Proprietary / closed-source products | **from $99/year** |
+| **OEM** | Redistribution, reselling as an SDK, or offering Hyper Compress as a service | **from $1,999/year** |
+
+<p align="center">
+  <a href="https://www.bentopdf.com/hyper-compress#pricing">
+    <img src="https://img.shields.io/badge/🚀_Get_Commercial_License-from_$99%2Fyear-6366f1?style=for-the-badge&labelColor=1f2937" alt="Get Commercial License">
+  </a>
+</p>
+
+> **Solo $99** · **Indie $199** · **Business $499** per year · **One closed-source product per license** · **Unlimited developers from Indie up** · **No AGPL obligations**
+
+> **Using BentoPDF?** Its commercial license already includes Hyper Compress as a bundled component for eligible products (companies under US$1 million in revenue and funding, through BentoPDF's own tools on the end user's device). Using the engine on its own, on a server, through an API or in other software needs a Hyper Compress license.
+
+For OEM terms, contact [contact@bentopdf.com](mailto:contact@bentopdf.com). See the [full license terms](COMMERCIAL-LICENSE.md) and the [pricing page](https://www.bentopdf.com/hyper-compress#pricing).
+
+📖 For more details, see the [Licensing Page](https://hyper.bentopdf.com/docs/licensing).
+
+---
+
 ## Table of Contents
 
 * [Why Hyper Compress](#why-hyper-compress)
