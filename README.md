@@ -50,6 +50,8 @@ Hyper Compress is built around solving these three problems.
 
 * **Content preserving compression.** Hyper includes a true lossless mode for compression without image re encoding or quality loss. For more aggressive compression, it preserves searchable text and document structure while making only the changes required by the selected compression level all while producing a conforming PDF.
 
+* **Signed documents handled safely.** A digitally signed PDF is returned byte for byte by default, so its signature stays valid. Set `removeSignatures` to compress it anyway: Hyper removes the digital signature, keeps the visible signature on the page, compresses the document and reports `signaturesRemoved`, so the file can be signed again.
+
 * **Built for reliability.** Hyper validates its output and verifies transformations that can affect visual fidelity. When a change cannot reproduce a page faithfully, it is rolled back. Across the benchmark, Hyper had a **0.39% corruption rate**, the lowest of any engine measured.
 
 * **One engine, everywhere.** The same compression engine powers the CLI, Node SDK, C API, self-hosted service, and WebAssembly build.
