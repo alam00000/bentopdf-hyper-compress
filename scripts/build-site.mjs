@@ -10,10 +10,18 @@ const { version } = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'ut
 const RELEASE = `https://github.com/alam00000/bentopdf-hyper-compress/releases/download/v${version}`;
 const TARBALL = `hyper-compress-v${version}-wasm.tar.gz`;
 
+const RELEASE_WAIT_MS = 30 * 60_000;
+const RETRY_MS = 30_000;
+
 const download = async (url) => {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
-  return Buffer.from(await res.arrayBuffer());
+  const deadline = Date.now() + RELEASE_WAIT_MS;
+  for (;;) {
+    const res = await fetch(url);
+    if (res.ok) return Buffer.from(await res.arrayBuffer());
+    if (res.status !== 404 || Date.now() > deadline) throw new Error(`${url}: HTTP ${res.status}`);
+    console.log(`${url}: not published yet, retrying in ${RETRY_MS / 1000}s`);
+    await new Promise((r) => setTimeout(r, RETRY_MS));
+  }
 };
 
 execFileSync('npm', ['run', 'docs:build'], { cwd: ROOT, stdio: 'inherit' });
