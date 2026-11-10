@@ -4654,7 +4654,10 @@ class HyperImageRewrite {
         !wants_mono_recompress) {
       return false;
     }
-    if (keep_cmyk && !needs_resize && !was_clipped) return false;
+    if (keep_cmyk && !needs_resize && !was_clipped &&
+        !(opts_.image_encoding == HYPERC_IMAGE_ENCODING_AUTO &&
+          HyperImageSourceIsLossy(image)))
+      return false;
 
     if (source_is_indexed && !needs_resize && !needs_grayscale &&
         !was_clipped && !wants_cmyk && !source_photographic) {
@@ -6851,6 +6854,8 @@ class HyperCatalogDiscard {
           continue;
         if (dict->KeyExist("Metadata"))
           dict->RemoveFor("Metadata");
+        if (dict->KeyExist("PieceInfo"))
+          dict->RemoveFor("PieceInfo");
       }
     }
   }
