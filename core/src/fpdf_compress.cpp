@@ -3812,13 +3812,7 @@ class HyperImageRewrite {
                                &dh, &adobe))
       return false;
     const bool ok = px && dw == w && dh == h;
-    if (ok) {
-      out->assign(px, px + need);
-      if (!adobe) {
-        for (uint8_t& v : *out)
-          v = static_cast<uint8_t>(255 - v);
-      }
-    }
+    if (ok) out->assign(px, px + need);
     HyperJpegliFree(px);
     *from_dct = true;
     return ok;
