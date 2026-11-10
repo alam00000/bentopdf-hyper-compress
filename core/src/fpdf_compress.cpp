@@ -435,10 +435,10 @@ uint64_t DigestDictForDedup(const CPDF_Dictionary* dict) {
   CPDF_DictionaryLocker locker(dict);
   for (const auto& it : locker) {
     const ByteString& k = it.first;
-
-    if (k == "Length" || k == "Name")
-      continue;
     const CPDF_Object* v = it.second.Get();
+
+    if (k == "Length" || (k == "Name" && v && v->IsName()))
+      continue;
     uint64_t vh = 0;
     if (v) {
       if (v->IsReference()) {
