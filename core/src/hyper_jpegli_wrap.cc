@@ -93,6 +93,7 @@ bool HyperJpegliEncode(const uint8_t* src,
   cinfo.in_color_space = color ? JCS_RGB : JCS_GRAYSCALE;
   jpegli_set_defaults(&cinfo);
   jpegli_set_quality(&cinfo, quality,  TRUE);
+  cinfo.optimize_coding = TRUE;
   if (color && (subsample == 1 || subsample == 2)) {
     cinfo.comp_info[0].h_samp_factor = 2;
     cinfo.comp_info[0].v_samp_factor = subsample == 1 ? 2 : 1;
@@ -237,6 +238,7 @@ bool HyperJpegliEncodeCmyk(const uint8_t* src,
   cinfo.in_color_space = JCS_CMYK;
   jpegli_set_defaults(&cinfo);
   jpegli_set_quality(&cinfo, quality, TRUE);
+  cinfo.optimize_coding = TRUE;
   cinfo.write_Adobe_marker = adobe_marker ? TRUE : FALSE;
   jpegli_start_compress(&cinfo, TRUE);
   const size_t row_bytes = static_cast<size_t>(width) * 4;
