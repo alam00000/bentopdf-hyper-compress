@@ -206,6 +206,66 @@ bool HyperJpegliDecodeCmyk(const uint8_t* data,
   return true;
 }
 
+jvirt_barray_ptr* jpegli_read_coefficients(j_decompress_ptr cinfo);
+
+__attribute__((visibility("default")))
+bool HyperJpegliRepack(const uint8_t* data,
+                       size_t len,
+                       uint8_t** out_buf,
+                       size_t* out_len) {
+  if (!data || len == 0 || !out_buf || !out_len) return false;
+  jpeg_decompress_struct din;
+  jpeg_compress_struct cout;
+  HyperJpegliErr jerr;
+  memset(&din, 0, sizeof(din));
+  memset(&cout, 0, sizeof(cout));
+  din.err = jpegli_std_error(&jerr.pub);
+  cout.err = &jerr.pub;
+  jerr.pub.error_exit = &HyperJpegliErrorExit;
+  unsigned char* mem = nullptr;
+  unsigned long mem_size = 0;
+  bool have_cout = false;
+  if (setjmp(jerr.setjmp_buffer)) {
+    if (have_cout) jpegli_destroy_compress(&cout);
+    jpegli_destroy_decompress(&din);
+    if (mem) free(mem);
+    return false;
+  }
+  jpegli_CreateDecompress(&din, JPEG_LIB_VERSION,
+                          sizeof(jpeg_decompress_struct));
+  jpegli_mem_src(&din, data, static_cast<unsigned long>(len));
+  if (jpegli_read_header(&din, TRUE) != JPEG_HEADER_OK) {
+    jpegli_destroy_decompress(&din);
+    return false;
+  }
+  jvirt_barray_ptr* coefs = jpegli_read_coefficients(&din);
+  if (!coefs) {
+    jpegli_destroy_decompress(&din);
+    return false;
+  }
+  jpegli_CreateCompress(&cout, JPEG_LIB_VERSION,
+                        sizeof(jpeg_compress_struct));
+  have_cout = true;
+  jpegli_mem_dest(&cout, &mem, &mem_size);
+  jpegli_copy_critical_parameters(&din, &cout);
+  cout.optimize_coding = TRUE;
+  cout.write_JFIF_header = din.saw_JFIF_marker;
+  cout.write_Adobe_marker = din.saw_Adobe_marker;
+  jpegli_write_coefficients(&cout, coefs);
+  jpegli_finish_compress(&cout);
+  jpegli_destroy_compress(&cout);
+  have_cout = false;
+  jpegli_finish_decompress(&din);
+  jpegli_destroy_decompress(&din);
+  if (!mem || mem_size == 0) {
+    if (mem) free(mem);
+    return false;
+  }
+  *out_buf = mem;
+  *out_len = mem_size;
+  return true;
+}
+
 __attribute__((visibility("default")))
 bool HyperJpegliEncodeCmyk(const uint8_t* src,
                            int width,

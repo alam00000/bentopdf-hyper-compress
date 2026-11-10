@@ -1973,17 +1973,7 @@ class HyperFontOptimize {
   template <typename Fn>
   void WalkAllFontDescriptors(Fn fn) {
     std::unordered_set<uint32_t> visited;
-    const int page_count = doc_->GetPageCount();
-    for (int i = 0; i < page_count; ++i) {
-      RetainPtr<CPDF_Dictionary> page_dict =
-          doc_->GetMutablePageDictionary(i);
-      if (!page_dict) continue;
-      RetainPtr<CPDF_Dictionary> resources =
-          page_dict->GetMutableDictFor("Resources");
-      if (!resources) continue;
-      RetainPtr<CPDF_Dictionary> font_map =
-          resources->GetMutableDictFor("Font");
-      if (!font_map) continue;
+    auto visit_font_map = [&](const RetainPtr<CPDF_Dictionary>& font_map) {
       CPDF_DictionaryLocker locker(font_map.Get());
       for (const auto& fp : locker) {
         RetainPtr<const CPDF_Object> font_obj_const = fp.second;
@@ -2044,6 +2034,35 @@ class HyperFontOptimize {
           }
         }
       }
+    };
+    const int page_count = doc_->GetPageCount();
+    for (int i = 0; i < page_count; ++i) {
+      RetainPtr<CPDF_Dictionary> page_dict =
+          doc_->GetMutablePageDictionary(i);
+      if (!page_dict) continue;
+      RetainPtr<CPDF_Dictionary> resources =
+          page_dict->GetMutableDictFor("Resources");
+      if (!resources) continue;
+      RetainPtr<CPDF_Dictionary> font_map =
+          resources->GetMutableDictFor("Font");
+      if (font_map) visit_font_map(font_map);
+    }
+    const uint32_t last = doc_->GetLastObjNum();
+    for (uint32_t objnum = 1; objnum <= last; ++objnum) {
+      RetainPtr<CPDF_Object> obj = doc_->GetOrParseIndirectObject(objnum);
+      if (!obj) continue;
+      RetainPtr<CPDF_Dictionary> dict;
+      if (CPDF_Stream* st = obj->AsMutableStream())
+        dict = st->GetMutableDict();
+      else
+        dict = ToDictionary(obj);
+      if (!dict) continue;
+      RetainPtr<CPDF_Dictionary> resources =
+          dict->GetMutableDictFor("Resources");
+      if (!resources) continue;
+      RetainPtr<CPDF_Dictionary> font_map =
+          resources->GetMutableDictFor("Font");
+      if (font_map) visit_font_map(font_map);
     }
   }
 
@@ -2074,7 +2093,8 @@ static RetainPtr<CPDF_Object> HyperIndexedBaseColorSpace(
 bool HyperTryEmitIndexed(CPDF_Document* doc,
                          RetainPtr<CPDF_Image> image,
                          const RetainPtr<CFX_DIBitmap>& bitmap,
-                         bool pdfa_mode) {
+                         bool pdfa_mode,
+                         size_t must_beat = 0) {
   if (!doc || !image || !bitmap) return false;
   const int w = bitmap->GetWidth();
   const int h = bitmap->GetHeight();
@@ -2167,6 +2187,8 @@ bool HyperTryEmitIndexed(CPDF_Document* doc,
           (probe.empty() ? indices.size() : probe.size()) +
           palette_bytes.size() + 256;
       if (projected >= orig_stored)
+        return false;
+      if (must_beat && projected >= must_beat)
         return false;
     }
   }
@@ -2615,6 +2637,41 @@ bool HyperJpegliDecodeCmyk(const uint8_t* data, size_t len,
 bool HyperJpegliEncodeCmyk(const uint8_t* src, int width, int height,
                            int quality, int adobe_marker, uint8_t** out_buf,
                            size_t* out_len);
+bool HyperJpegliRepack(const uint8_t* data, size_t len, uint8_t** out_buf,
+                       size_t* out_len);
+}
+
+void HyperRepackJpegs(CPDF_Document* doc) {
+  const uint32_t last = doc->GetLastObjNum();
+  for (uint32_t objnum = 1; objnum <= last; ++objnum) {
+    RetainPtr<CPDF_Object> obj = doc->GetOrParseIndirectObject(objnum);
+    CPDF_Stream* st = obj ? obj->AsMutableStream() : nullptr;
+    if (!st)
+      continue;
+    RetainPtr<const CPDF_Dictionary> d = st->GetDict();
+    if (!d || d->GetNameFor("Subtype") != "Image")
+      continue;
+    RetainPtr<const CPDF_Object> f = d->GetDirectObjectFor("Filter");
+    const CPDF_Array* fa = f ? f->AsArray() : nullptr;
+    RetainPtr<const CPDF_Object> f0 =
+        fa ? (fa->size() == 1 ? fa->GetDirectObjectAt(0) : nullptr) : f;
+    if (!f0 || !f0->IsName() || f0->GetString() != "DCTDecode")
+      continue;
+    auto acc = pdfium::MakeRetain<CPDF_StreamAcc>(
+        pdfium::WrapRetain<const CPDF_Stream>(st));
+    acc->LoadAllDataRaw();
+    pdfium::span<const uint8_t> raw = acc->GetSpan();
+    if (raw.empty())
+      continue;
+    uint8_t* out = nullptr;
+    size_t out_len = 0;
+    if (HyperJpegliRepack(raw.data(), raw.size(), &out, &out_len) && out &&
+        out_len && out_len < raw.size()) {
+      st->TakeData(DataVector<uint8_t>(out, out + out_len));
+    }
+    if (out)
+      HyperJpegliFree(out);
+  }
 }
 
 bool HyperOverwriteJpegInPlace(CPDF_Document* doc,
@@ -2829,14 +2886,11 @@ bool HyperEmitJbig2(CPDF_Document* doc,
   dict->SetNewFor<CPDF_Name>("Filter", "JBIG2Decode");
   HyperJbig2MaybeAddDecodeFlip(dict.Get(), bitmap);
 
-  RetainPtr<CPDF_Stream> new_stream = pdfium::MakeRetain<CPDF_Stream>(
-      std::move(jbig2_bytes), std::move(dict));
   RetainPtr<const CPDF_Stream> orig_stream = image->GetStream();
-  uint32_t orig_objnum = orig_stream ? orig_stream->GetObjNum() : 0;
-  if (orig_objnum == 0) return false;
-  doc->ReplaceIndirectObjectIfHigherGeneration(orig_objnum,
-                                                std::move(new_stream));
-  return true;
+  if (!orig_stream || jbig2_bytes.size() >= orig_stream->GetRawSize())
+    return false;
+  return image->OverwriteStreamInPlace(std::move(jbig2_bytes), std::move(dict),
+                                        false);
 }
 
 bool HyperEmitJbig2Stencil(CPDF_Document* doc,
@@ -4802,8 +4856,28 @@ class HyperImageRewrite {
         if (!image_upscaled &&
             effective_dpi >= static_cast<float>(opts_.image_index_min_dpi) &&
             !preserved_smask_ref && !preserved_mask_ref && !source_is_indexed) {
+          size_t jpeg_size = 0;
+          const int bpp = final_bitmap->GetBPP();
+          if (encoding == HYPERC_IMAGE_ENCODING_AUTO &&
+              HyperImageSourceIsLossy(image) && !opts_.jpeg_progressive &&
+              (bpp == 8 || bpp == 24 || bpp == 32)) {
+            pdfium::span<const uint8_t> buf = final_bitmap->GetBuffer();
+            uint8_t* jl = nullptr;
+            size_t jl_len = 0;
+            if (!buf.empty() &&
+                HyperJpegliEncode(buf.data(), final_bitmap->GetWidth(),
+                                  final_bitmap->GetHeight(),
+                                  final_bitmap->GetPitch(), bpp / 8,
+                                  bpp >= 24 ? 1 : 0, opts_.image_quality, 0,
+                                  opts_.jpeg_subsample, &jl, &jl_len) &&
+                jl && jl_len) {
+              jpeg_size = jl_len;
+              jpeg_cache.assign(jl, jl + jl_len);
+            }
+            if (jl) HyperJpegliFree(jl);
+          }
           emitted = HyperTryEmitIndexed(doc_, image, final_bitmap,
-                                       (opts_.pdfa_mode & 2) != 0);
+                                       (opts_.pdfa_mode & 2) != 0, jpeg_size);
 
         }
 
@@ -8513,6 +8587,8 @@ HyperCompress_Execute(FPDF_DOCUMENT document, FPDF_COMPRESS_OPTIONS h) {
 
   HyperMrcEncoder mrc(doc, *opts);
   mrc.Run();
+
+  HyperRepackJpegs(doc);
 
   HyperFontOptimize font_pass(doc, *opts);
   font_pass.Run();
