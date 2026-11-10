@@ -41,6 +41,7 @@
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
 #include "core/fpdfapi/parser/cpdf_name.h"
+#include "core/fpdfapi/parser/cpdf_null.h"
 #include "core/fpdfapi/parser/cpdf_number.h"
 #include "core/fpdfapi/parser/cpdf_object.h"
 #include "core/fpdfapi/parser/cpdf_reference.h"
@@ -139,6 +140,7 @@ struct CompressOptions {
   int mrc_bg_quality = 30;
   int mrc_fg_quality = 50;
   int mrc_detect_photos = 1;
+  int jbig2_symbols = 0;
 
   int recompress_content_streams = 1;
   int content_precision = 0;
@@ -1248,6 +1250,7 @@ class HyperFontOptimize {
       hb_blob_destroy(in_blob);
       return {};
     }
+    hb_subset_input_set_flags(input, HB_SUBSET_FLAGS_NOTDEF_OUTLINE);
     hb_set_t* keep = hb_subset_input_glyph_set(input);
     hb_set_add(keep, 0);
     for (uint32_t gid : glyphs)
@@ -1526,7 +1529,8 @@ class HyperFontOptimize {
     }
 
     hb_subset_input_set_flags(
-        input, HB_SUBSET_FLAGS_RETAIN_GIDS | HB_SUBSET_FLAGS_GLYPH_NAMES);
+        input, HB_SUBSET_FLAGS_RETAIN_GIDS | HB_SUBSET_FLAGS_GLYPH_NAMES |
+                   HB_SUBSET_FLAGS_NOTDEF_OUTLINE);
     hb_set_t* keep = hb_subset_input_glyph_set(input);
     hb_set_add(keep, 0);
     for (uint32_t gid : glyphs) hb_set_add(keep, gid);
@@ -2790,37 +2794,24 @@ bool HyperEmitJpeg(CPDF_Document* doc,
   return HyperOverwriteJpegInPlace(doc, image, std::move(jpeg_bytes));
 }
 
-bool HyperEmitMonochromeCCITT(CPDF_Document* doc,
-                               RetainPtr<CPDF_Image> image,
-                               const RetainPtr<CFX_DIBitmap>& bitmap) {
-  if (!doc || !image || !bitmap || bitmap->GetBPP() != 1) return false;
-  DataVector<uint8_t> g4_bytes = FaxModule::FaxEncode(bitmap);
-  if (g4_bytes.empty()) return false;
+bool HyperMonoPaletteIsBlackWhite(const RetainPtr<CFX_DIBitmap>& bitmap) {
+  for (int i = 0; i < 2; ++i) {
+    const uint32_t c = bitmap->GetPaletteArgb(i);
+    const uint32_t r = c >> 16 & 0xff, g = c >> 8 & 0xff, b = c & 0xff;
+    if (r != g || g != b || (r != 0 && r != 255)) return false;
+  }
+  return bitmap->GetPaletteArgb(0) != bitmap->GetPaletteArgb(1);
+}
 
-  const int w = bitmap->GetWidth();
-  const int h = bitmap->GetHeight();
-  auto dict = doc->New<CPDF_Dictionary>();
-  dict->SetNewFor<CPDF_Name>("Type", "XObject");
-  dict->SetNewFor<CPDF_Name>("Subtype", "Image");
-  dict->SetNewFor<CPDF_Number>("Width", w);
-  dict->SetNewFor<CPDF_Number>("Height", h);
-  dict->SetNewFor<CPDF_Number>("BitsPerComponent", 1);
-  dict->SetNewFor<CPDF_Name>("ColorSpace", "DeviceGray");
-  dict->SetNewFor<CPDF_Name>("Filter", "CCITTFaxDecode");
-
-  auto parms = dict->SetNewFor<CPDF_Dictionary>("DecodeParms");
-  parms->SetNewFor<CPDF_Number>("K", -1);
-  parms->SetNewFor<CPDF_Number>("Columns", w);
-  parms->SetNewFor<CPDF_Number>("Rows", h);
-
-  RetainPtr<CPDF_Stream> new_stream =
-      pdfium::MakeRetain<CPDF_Stream>(std::move(g4_bytes), std::move(dict));
-  RetainPtr<const CPDF_Stream> orig_stream = image->GetStream();
-  uint32_t orig_objnum = orig_stream ? orig_stream->GetObjNum() : 0;
-  if (orig_objnum == 0) return false;
-  doc->ReplaceIndirectObjectIfHigherGeneration(orig_objnum,
-                                                std::move(new_stream));
-  return true;
+void HyperCopyMonoImageExtras(const RetainPtr<CPDF_Image>& image,
+                              CPDF_Dictionary* dict) {
+  RetainPtr<const CPDF_Stream> s = image->GetStream();
+  RetainPtr<const CPDF_Dictionary> old = s ? s->GetDict() : nullptr;
+  if (!old) return;
+  for (const char* key : {"SMask", "Mask", "Intent", "Interpolate"}) {
+    if (RetainPtr<const CPDF_Object> v = old->GetObjectFor(key))
+      dict->SetFor(key, v->Clone());
+  }
 }
 
 extern "C" {
@@ -2885,6 +2876,7 @@ bool HyperEmitJbig2(CPDF_Document* doc,
   dict->SetNewFor<CPDF_Name>("ColorSpace", "DeviceGray");
   dict->SetNewFor<CPDF_Name>("Filter", "JBIG2Decode");
   HyperJbig2MaybeAddDecodeFlip(dict.Get(), bitmap);
+  HyperCopyMonoImageExtras(image, dict.Get());
 
   RetainPtr<const CPDF_Stream> orig_stream = image->GetStream();
   if (!orig_stream || jbig2_bytes.size() >= orig_stream->GetRawSize())
@@ -4067,6 +4059,10 @@ class HyperImageRewrite {
       dict->SetFor("ColorSpace", cs->Clone());
     if (RetainPtr<const CPDF_Object> dec = img_dict->GetDirectObjectFor("Decode"))
       dict->SetFor("Decode", dec->Clone());
+    for (const char* key : {"SMask", "Mask", "Intent"}) {
+      if (RetainPtr<const CPDF_Object> v = img_dict->GetObjectFor(key))
+        dict->SetFor(key, v->Clone());
+    }
     dict->SetNewFor<CPDF_Name>("Filter", "FlateDecode");
     return image->OverwriteStreamInPlace(std::move(flate), std::move(dict),
                                            false);
@@ -4909,7 +4905,8 @@ class HyperImageRewrite {
         }
       }
 
-      if (!emitted && final_bitmap->GetBPP() == 1) {
+      if (!emitted && final_bitmap->GetBPP() == 1 &&
+          HyperMonoPaletteIsBlackWhite(final_bitmap)) {
         pending_jbig2_.push_back({image, final_bitmap});
         emitted = true;
       }
@@ -5073,7 +5070,7 @@ class HyperImageRewrite {
     return grid;
   }
 
-  static constexpr double kMaxJbig2SubstDiff = 0.60;
+  static constexpr double kMaxJbig2SubstDiff = 0.25;
 
   bool DecodeJbig2RawToGrid(JBig2_DocumentContext* doc_ctx,
                             pdfium::span<const uint8_t> globals_span,
@@ -5118,6 +5115,12 @@ class HyperImageRewrite {
           src_bitmap->GetHeight() == h) {
         int64_t xor_cnt = 0, set_src = 0, set_out = 0;
         const int64_t total = static_cast<int64_t>(w) * h;
+        constexpr int kTile = 32;
+        const int tiles_x = (w + kTile - 1) / kTile;
+        const int tiles_y = (h + kTile - 1) / kTile;
+        std::vector<int32_t> t_xor(static_cast<size_t>(tiles_x) * tiles_y, 0);
+        std::vector<int32_t> t_src(t_xor.size(), 0), t_out(t_xor.size(), 0);
+        std::vector<int32_t> t_px(t_xor.size(), 0);
         bool rows_ok = true;
         for (int y = 0; y < h; ++y) {
           pdfium::span<const uint8_t> srow = src_bitmap->GetScanline(y);
@@ -5126,12 +5129,18 @@ class HyperImageRewrite {
             rows_ok = false;
             break;
           }
+          const size_t trow = static_cast<size_t>(y / kTile) * tiles_x;
           for (int x = 0; x < w; ++x) {
             const int sb = (srow[x >> 3] >> (7 - (x & 7))) & 1;
             const int ob = (orow[x >> 3] >> (7 - (x & 7))) & 1;
             set_src += sb;
             set_out += ob;
             xor_cnt += (sb != ob);
+            const size_t t = trow + x / kTile;
+            t_xor[t] += (sb != ob);
+            t_src[t] += sb;
+            t_out[t] += ob;
+            ++t_px[t];
           }
         }
         if (rows_ok && total > 0) {
@@ -5139,6 +5148,18 @@ class HyperImageRewrite {
           const int64_t ink =
               std::max<int64_t>(std::min(set_src, total - set_src), 1);
           *out_ink_diff = static_cast<double>(diff) / static_cast<double>(ink);
+          const bool flipped = xor_cnt > total - xor_cnt;
+          const bool src_minor0 = set_src * 2 > total;
+          const bool out_minor0 = set_out * 2 > total;
+          for (size_t t = 0; t < t_xor.size(); ++t) {
+            const int32_t tx = flipped ? t_px[t] - t_xor[t] : t_xor[t];
+            const int32_t ts = src_minor0 ? t_px[t] - t_src[t] : t_src[t];
+            const int32_t to = out_minor0 ? t_px[t] - t_out[t] : t_out[t];
+            if (tx >= 40 && tx * 2 > std::max(ts, to)) {
+              *out_ink_diff = 1.0;
+              break;
+            }
+          }
         }
       }
     }
@@ -5173,6 +5194,10 @@ class HyperImageRewrite {
 
   void FinaliseJbig2Batch() {
     if (pending_jbig2_.empty()) return;
+    if (!opts_.jbig2_symbols) {
+      FallbackJbig2BatchPerImage();
+      return;
+    }
     std::vector<size_t> all;
     all.reserve(pending_jbig2_.size());
     for (size_t i = 0; i < pending_jbig2_.size(); ++i)
@@ -5350,6 +5375,7 @@ class HyperImageRewrite {
       dict->SetNewFor<CPDF_Name>("ColorSpace", "DeviceGray");
       dict->SetNewFor<CPDF_Name>("Filter", "JBIG2Decode");
       HyperJbig2MaybeAddDecodeFlip(dict.Get(), p.bitmap);
+      HyperCopyMonoImageExtras(p.image, dict.Get());
       auto parms = dict->SetNewFor<CPDF_Dictionary>("DecodeParms");
       parms->SetNewFor<CPDF_Reference>("JBIG2Globals", doc_, globals_objnum);
       if (!p.image->OverwriteStreamInPlace(std::move(data_bytes),
@@ -5368,8 +5394,7 @@ class HyperImageRewrite {
   void FallbackJbig2OneImage(const PendingJbig2& p) {
     if (!p.image || !p.bitmap) return;
 
-    if (HyperEmitJbig2(doc_, p.image, p.bitmap)) return;
-    HyperEmitMonochromeCCITT(doc_, p.image, p.bitmap);
+    HyperEmitJbig2(doc_, p.image, p.bitmap);
   }
 
   bool census_complete_ = false;
@@ -7687,6 +7712,53 @@ static void HyperRemoveSignatures(CPDF_Document* doc) {
   }
 }
 
+bool HyperRefIsDangling(CPDF_Document* doc, const CPDF_Object* v) {
+  const uint32_t n = v->AsReference()->GetRefObjNum();
+  return n == 0 || !doc->GetOrParseIndirectObject(n);
+}
+
+void HyperDropDanglingRefsIn(CPDF_Document* doc, CPDF_Object* obj) {
+  if (obj->IsStream()) {
+    RetainPtr<CPDF_Dictionary> sdict = obj->AsMutableStream()->GetMutableDict();
+    if (sdict) HyperDropDanglingRefsIn(doc, sdict.Get());
+  } else if (obj->IsDictionary()) {
+    CPDF_Dictionary* dict = obj->AsMutableDictionary();
+    std::vector<ByteString> keys;
+    {
+      CPDF_DictionaryLocker locker(dict);
+      for (const auto& it : locker) keys.push_back(it.first);
+    }
+    for (const ByteString& k : keys) {
+      RetainPtr<CPDF_Object> v = dict->GetMutableObjectFor(k.AsStringView());
+      if (!v) continue;
+      if (v->IsReference()) {
+        if (HyperRefIsDangling(doc, v.Get())) dict->RemoveFor(k.AsStringView());
+      } else {
+        HyperDropDanglingRefsIn(doc, v.Get());
+      }
+    }
+  } else if (obj->IsArray()) {
+    CPDF_Array* arr = obj->AsMutableArray();
+    for (size_t i = 0; i < arr->size(); ++i) {
+      RetainPtr<CPDF_Object> v = arr->GetMutableObjectAt(i);
+      if (!v) continue;
+      if (v->IsReference()) {
+        if (HyperRefIsDangling(doc, v.Get())) arr->SetNewAt<CPDF_Null>(i);
+      } else {
+        HyperDropDanglingRefsIn(doc, v.Get());
+      }
+    }
+  }
+}
+
+void HyperDropDanglingRefs(CPDF_Document* doc) {
+  const uint32_t last = doc->GetLastObjNum();
+  for (uint32_t i = 1; i <= last; ++i) {
+    RetainPtr<CPDF_Object> obj = doc->GetOrParseIndirectObject(i);
+    if (obj) HyperDropDanglingRefsIn(doc, obj.Get());
+  }
+}
+
 void HyperCoalescePageContents(CPDF_Document* doc) {
   if (!doc)
     return;
@@ -8447,6 +8519,7 @@ HyperCompress_SetOption(FPDF_COMPRESS_OPTIONS h, int option, int value) {
     case HYPERC_OPT_MRC_BG_QUALITY:       opts->mrc_bg_quality = value; break;
     case HYPERC_OPT_MRC_FG_QUALITY:       opts->mrc_fg_quality = value; break;
     case HYPERC_OPT_MRC_DETECT_PHOTOS:    opts->mrc_detect_photos = value; break;
+    case HYPERC_OPT_JBIG2_SYMBOLS:        opts->jbig2_symbols = value; break;
     case HYPERC_OPT_CONVERT_PAGE_COLORS:  opts->convert_page_colors = value; break;
     case HYPERC_OPT_SPEED:                opts->speed = value; break;
     case HYPERC_OPT_REPORT:               opts->report = value; break;
@@ -8513,6 +8586,7 @@ HyperCompress_GetOption(FPDF_COMPRESS_OPTIONS h, int option) {
     case HYPERC_OPT_MRC_BG_QUALITY:       return opts->mrc_bg_quality;
     case HYPERC_OPT_MRC_FG_QUALITY:       return opts->mrc_fg_quality;
     case HYPERC_OPT_MRC_DETECT_PHOTOS:    return opts->mrc_detect_photos;
+    case HYPERC_OPT_JBIG2_SYMBOLS:        return opts->jbig2_symbols;
     case HYPERC_OPT_CONVERT_PAGE_COLORS:  return opts->convert_page_colors;
     case HYPERC_OPT_SPEED:                return opts->speed;
     case HYPERC_OPT_REPORT:               return opts->report;
@@ -8567,6 +8641,8 @@ HyperCompress_Execute(FPDF_DOCUMENT document, FPDF_COMPRESS_OPTIONS h) {
     }
     ~JpxDecodeThreadsScope() { fxcodec::CJPX_Decoder::SetHyperDecodeThreads(0); }
   } jpx_threads_scope(hyper_cs::ResolveThreadCount(opts->threads));
+
+  HyperDropDanglingRefs(doc);
 
   HyperCoalescePageContents(doc);
 

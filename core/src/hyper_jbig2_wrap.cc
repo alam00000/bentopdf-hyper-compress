@@ -93,7 +93,7 @@ __attribute__((visibility("default")))
 void* HyperJbig2BeginDoc(void) {
 
   struct jbig2ctx* j =
-      jbig2_init(0.80f, 0.5f,  300,  300,
+      jbig2_init(0.92f, 0.5f,  300,  300,
                   false,  -1);
   if (!j) return nullptr;
   auto* doc = new (std::nothrow) HyperJbig2Doc();

@@ -18,7 +18,7 @@ const PRESET_BASE: HyperCompressOptions = {
   removePrintSettings: false, removeSearchIndex: false, removeSignatureAppearances: false,
   preserveConformance: false, brotli: false, linearize: false, minVersion: 'none',
   mrc: 'off', mrcBackgroundDpi: 75, mrcBackgroundQuality: 30, mrcForegroundQuality: 50,
-  mrcDetectPhotos: true,
+  mrcDetectPhotos: true, jbig2Symbols: false,
   contentPrecision: 6,
 };
 
@@ -32,7 +32,7 @@ export const HYPER_PRESETS: Record<CompressLevel, HyperCompressOptions> = {
   },
   high: {
     ...PRESET_BASE,
-    imageQuality: 20, maxDpi: 72, removeAlternates: true,
+    imageQuality: 20, maxDpi: 72, maxDpiMono: 150, removeAlternates: true,
     removeStandardFonts: true, unembedAliasedFonts: true,
     removeThreads: true, removeSpiderInfo: true,
   },

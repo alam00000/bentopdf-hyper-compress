@@ -53,6 +53,7 @@ export interface HyperCompressOptions {
   mrcBackgroundQuality: number;
   mrcForegroundQuality: number;
   mrcDetectPhotos: boolean;
+  jbig2Symbols: boolean;
   contentPrecision: number;
 }
 
@@ -144,6 +145,7 @@ export function normalizeHyperOptions(raw: unknown): HyperCompressOptions {
     mrcBackgroundQuality: clamp(a.mrcBackgroundQuality, 5, 100, 30),
     mrcForegroundQuality: clamp(a.mrcForegroundQuality, 5, 100, 50),
     mrcDetectPhotos: bool(a.mrcDetectPhotos, true),
+    jbig2Symbols: bool(a.jbig2Symbols, false),
     contentPrecision: ((p) => (p === 0 ? 0 : Math.max(3, p)))(
       clamp(a.contentPrecision, 0, 8, 0),
     ),
@@ -229,6 +231,7 @@ export function buildHyperTokens(o: HyperCompressOptions): string[] {
     );
     if (!o.mrcDetectPhotos) tokens.push('72=0');
   }
+  if (!o.lossless && o.jbig2Symbols) tokens.push('73=1');
   if (!o.lossless && o.contentPrecision > 0) tokens.push(`67=${o.contentPrecision}`);
   if (o.preserveConformance) tokens.push('64=3');
   if (o.brotli && !o.preserveConformance) tokens.push('65=1', '66=11');
@@ -345,6 +348,10 @@ export const HYPER_OPTION_DOCS: Record<keyof HyperCompressOptions, HyperOptionDo
   mrcDetectPhotos: {
     group: 'Images', type: 'boolean', default: true,
     description: 'Find photographic regions on MRC pages and keep them out of the 1-bit text mask, so photos are stored as a separate image layer at the background resolution instead of being broken into black specks.',
+  },
+  jbig2Symbols: {
+    group: 'Images', type: 'boolean', default: false,
+    description: 'Store repeated shapes in black and white images once and reuse them across pages (lossy JBIG2). Smaller scans, but a shape can be swapped for a similar one, so a page is kept only when every small area matches the original. Off keeps black and white images exact.',
   },
   rasterizePages: {
     group: 'Rasterization', type: 'boolean', default: false,

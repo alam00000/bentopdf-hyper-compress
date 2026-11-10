@@ -128,7 +128,7 @@ test('presets keep their engine tokens: the new options default to today\'s beha
   const expected: Record<string, string[]> = {
     low: ['1=200', '2=80', '3=4', '8=1', '18=1', '7=1', '63=10', '10=1', '13=1', '14=1', '16=1', '17=1', '20=8322', '67=6'],
     medium: ['1=150', '2=50', '3=4', '8=1', '18=1', '7=1', '63=10', '6=1', '10=1', '13=1', '14=1', '16=1', '17=1', '20=8322', '67=6'],
-    high: ['1=72', '2=20', '3=4', '8=1', '18=1', '7=1', '63=10', '6=1', '10=1', '12=1', '9=1', '13=1', '14=1', '16=1', '17=1', '20=565442', '67=6'],
+    high: ['1=72', '59=150', '2=20', '3=4', '8=1', '18=1', '7=1', '63=10', '6=1', '10=1', '12=1', '9=1', '13=1', '14=1', '16=1', '17=1', '20=565442', '67=6'],
     lossless: ['3=0', '7=1', '10=1', '13=1', '14=1', '16=1', '17=1', '20=8322'],
   };
   for (const name of ['low', 'medium', 'high', 'lossless'] as const) {
@@ -230,6 +230,14 @@ test('mrcDetectPhotos is on by default and only emits a token when turned off wi
   assert.ok(!tokensOf({ mrc: 'auto' }).includes('72=0'));
   assert.ok(tokensOf({ mrc: 'auto', mrcDetectPhotos: false }).includes('72=0'));
   assert.ok(!tokensOf({ mrcDetectPhotos: false }).includes('72=0'));
+});
+
+test('jbig2Symbols is off in every preset and only emits a token when lossy', () => {
+  for (const level of Object.keys(HYPER_PRESETS) as (keyof typeof HYPER_PRESETS)[])
+    assert.equal(normalizeHyperOptions(HYPER_PRESETS[level]).jbig2Symbols, false);
+  assert.ok(!tokensOf({}).includes('73=1'));
+  assert.ok(tokensOf({ jbig2Symbols: true }).includes('73=1'));
+  assert.ok(!tokensOf({ jbig2Symbols: true, lossless: true }).includes('73=1'));
 });
 
 test('raiseHeaderVersion raises a lower header and never lowers one', async () => {
