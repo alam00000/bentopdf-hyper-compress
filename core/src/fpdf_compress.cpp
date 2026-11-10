@@ -5075,7 +5075,8 @@ class HyperImageRewrite {
 
   static constexpr double kMaxJbig2SubstDiff = 0.60;
 
-  bool DecodeJbig2RawToGrid(pdfium::span<const uint8_t> globals_span,
+  bool DecodeJbig2RawToGrid(JBig2_DocumentContext* doc_ctx,
+                            pdfium::span<const uint8_t> globals_span,
                             pdfium::span<const uint8_t> page_span,
                             int w, int h, const CFX_DIBBase* src_bitmap,
                             std::vector<double>* out, double* out_ink_diff) {
@@ -5083,11 +5084,10 @@ class HyperImageRewrite {
 
     const uint32_t pitch = ((static_cast<uint32_t>(w) + 31) / 32) * 4;
     std::vector<uint8_t> dest(static_cast<size_t>(pitch) * h, 0);
-    auto doc_ctx = std::make_unique<JBig2_DocumentContext>();
     Jbig2Context ctx;
 
     FXCODEC_STATUS st = Jbig2Decoder::StartDecode(
-        &ctx, doc_ctx.get(), static_cast<uint32_t>(w),
+        &ctx, doc_ctx, static_cast<uint32_t>(w),
         static_cast<uint32_t>(h), page_span,  2, globals_span,
          1, pdfium::span<uint8_t>(dest), pitch, nullptr,
          false);
@@ -5278,6 +5278,7 @@ class HyperImageRewrite {
     candidates.reserve(in_batch.size());
     size_t total_jbig2 = 0;
     size_t total_orig = 0;
+    JBig2_DocumentContext verify_ctx;
     for (size_t page_index = 0; page_index < in_batch.size();
          ++page_index) {
       const size_t queue_idx = in_batch[page_index];
@@ -5294,7 +5295,7 @@ class HyperImageRewrite {
       std::vector<double> g_out;
       double ink_diff = 1.0;
       const bool decoded = DecodeJbig2RawToGrid(
-          pdfium::span<const uint8_t>(globals_copy),
+          &verify_ctx, pdfium::span<const uint8_t>(globals_copy),
           pdfium::span<const uint8_t>(page_bytes, page_len),
           p.bitmap->GetWidth(), p.bitmap->GetHeight(), p.bitmap.Get(), &g_out,
           &ink_diff);
