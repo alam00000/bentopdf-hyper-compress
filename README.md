@@ -2,6 +2,28 @@
 
 <h1 align="center">Hyper Compress</h1>
 
+<h3 align="center">💖 Thank You to Our Sponsors</h3>
+<p align="center">
+  <a href="https://vercel.com/open-source-program">
+    <img alt="Vercel OSS Program" src="https://vercel.com/oss/program-badge-2026.svg" height="30" />
+  </a>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://www.digitalocean.com/?refcode=d93c189ef6d0&utm_campaign=Referral_Invite&utm_medium=Referral_Program&utm_source=badge">
+    <img src="https://web-platforms.sfo2.cdn.digitaloceanspaces.com/WWW/Badge%203.svg" alt="DigitalOcean Referral Badge" height="44">
+  </a>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://www.nvidia.com/en-us/startups/">
+    <img alt="NVIDIA Inception Program" src="https://raw.githubusercontent.com/alam00000/bentopdf/main/public/images/nvidia-inception.svg" height="44" />
+  </a>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://www.vultr.com/">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/alam00000/bentopdf/main/public/images/vultr-logo-dark.svg" />
+      <img alt="Vultr" src="https://raw.githubusercontent.com/alam00000/bentopdf/main/public/images/vultr-logo-light.svg" height="30" />
+    </picture>
+  </a>
+</p>
+
 <p align="center">
   <strong>The best open source PDF compression engine.</strong>
 </p>
