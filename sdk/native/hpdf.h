@@ -5,7 +5,7 @@
 extern "C" {
 #endif
 
-#define HPDF_VERSION "1.1.3"
+#define HPDF_VERSION "1.1.4"
 
 int hpdf_compress_file(const char* in_path,
                        const char* out_path,
