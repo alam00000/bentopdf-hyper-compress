@@ -1,5 +1,6 @@
 FROM ubuntu:24.04 AS native
-RUN sed -i 's#http://\(archive\|security\).ubuntu.com#http://azure.archive.ubuntu.com#g' /etc/apt/sources.list.d/ubuntu.sources
+RUN sed -i 's#http://\(archive\|security\).ubuntu.com#http://mirrors.edge.kernel.org#g' /etc/apt/sources.list.d/ubuntu.sources \
+    && echo 'Acquire::Retries "5";' > /etc/apt/apt.conf.d/80-retries
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates python3 xz-utils lsb-release file \
     build-essential cmake ninja-build pkg-config rsync \
