@@ -1,6 +1,7 @@
 FROM ubuntu:24.04 AS native
-RUN sed -i 's#http://\(archive\|security\).ubuntu.com#http://mirrors.edge.kernel.org#g' /etc/apt/sources.list.d/ubuntu.sources \
-    && echo 'Acquire::Retries "5";' > /etc/apt/apt.conf.d/80-retries
+RUN printf '%s\n' http://mirrors.edge.kernel.org/ubuntu/ http://mirrors.mit.edu/ubuntu/ http://mirror.math.princeton.edu/pub/ubuntu/ http://azure.archive.ubuntu.com/ubuntu/ http://archive.ubuntu.com/ubuntu/ > /etc/apt/mirrors.txt \
+    && sed -i 's#^URIs: .*#URIs: mirror+file:/etc/apt/mirrors.txt#' /etc/apt/sources.list.d/ubuntu.sources \
+    && printf 'Acquire::Retries "5";\nAcquire::http::Timeout "20";\n' > /etc/apt/apt.conf.d/80-retries
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates python3 xz-utils lsb-release file \
     build-essential cmake ninja-build pkg-config rsync \

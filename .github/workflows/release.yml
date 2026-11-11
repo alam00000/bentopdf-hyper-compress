@@ -57,8 +57,9 @@ jobs:
       - uses: actions/checkout@v7
       - name: deps
         run: |
-          sudo sed -i 's#^URIs: .*#URIs: http://mirrors.edge.kernel.org/ubuntu/#' /etc/apt/sources.list.d/ubuntu.sources
-          echo 'Acquire::Retries "5";' | sudo tee /etc/apt/apt.conf.d/80-retries
+          printf '%s\n' http://mirrors.edge.kernel.org/ubuntu/ http://mirrors.mit.edu/ubuntu/ http://mirror.math.princeton.edu/pub/ubuntu/ http://azure.archive.ubuntu.com/ubuntu/ http://archive.ubuntu.com/ubuntu/ | sudo tee /etc/apt/mirrors.txt
+          sudo sed -i 's#^URIs: .*#URIs: mirror+file:/etc/apt/mirrors.txt#' /etc/apt/sources.list.d/ubuntu.sources
+          printf 'Acquire::Retries "5";\nAcquire::http::Timeout "20";\n' | sudo tee /etc/apt/apt.conf.d/80-retries
           sudo apt-get update
           sudo apt-get install -y build-essential cmake ninja-build pkg-config rsync \
             python3 xz-utils lsb-release file libjpeg-dev zlib1g-dev
