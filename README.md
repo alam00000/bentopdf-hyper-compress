@@ -56,7 +56,6 @@ For OEM terms, contact [contact@bentopdf.com](mailto:contact@bentopdf.com). See 
   * [C API](#c-api)
 * [Compression Levels](#compression-levels)
 * [What the Engine Does](#what-the-engine-does)
-* [What the Engine Refuses to Do](#what-the-engine-refuses-to-do)
 * [Building from Source](#building-from-source)
 * [Testing](#testing)
 * [Project Layout](#project-layout)
@@ -87,6 +86,201 @@ Hyper Compress is built around solving these three problems.
 
 ## Benchmarks
 
+### Against commercial SDKs: PDF Tools, Apryse and Nutrient
+
+Hyper Compress was benchmarked against the PDF Tools, Apryse and Nutrient SDKs on **1,000 real PDFs (3.13 GB) from five public sources**, at four levels, for a total of **13,000 engine runs**. We make Hyper, so everything needed to check or repeat these numbers is in [`bench/sdk-comparison/`](bench/sdk-comparison/): the exact list of PDFs with download links and checksums, every per-file result, and the code.
+
+Each engine's settings were taken from its own documentation to match each level as closely as its options allow. If you know a setting that would serve an engine better at the same level, open an issue and we will rerun it.
+
+Size saved overall, @ average page quality (SSIMULACRA2, where 100 is identical):
+
+| Engine | Lossless | 200 dpi | 150 dpi | 72 dpi |
+| --- | --- | --- | --- | --- |
+| **Hyper** | **18.0% @ 99.5** | **61.0% @ 89.8** | **70.2% @ 86.4** | **79.9% @ 67.9** |
+| PDF Tools | N/A | 55.1% @ 86.7 | 64.7% @ 82.9 | 75.6% @ 72.2 |
+| Apryse | N/A | 41.8% @ 88.4 | 55.6% @ 85.8 | 74.6% @ 73.4 |
+| Nutrient | N/A | 55.2% @ 87.8 | 61.5% @ 82.8 | 72.0% @ 70.8 |
+
+Robustness across the same benchmark:
+
+| Engine | Runs | Failed | Grew the file |
+| --- | ---: | ---: | ---: |
+| **Hyper** | **4,000** | **0** | **0** |
+| Nutrient | 3,000 | 6 (0.20%) | 5 (0.2%) |
+| PDF Tools | 3,000 | 0 | 64 (2.1%) |
+| Apryse | 3,000 | 8 (0.27%) | 120 (4.0%) |
+
+> [!NOTE]
+> PDF Tools, Apryse and Nutrient have no lossless mode: none of their documentation describes a lossless optimization setting, so their lossless results are N/A.
+
+<details>
+<summary>Engines, machine and corpus</summary>
+
+| Engine | Version | How it was run |
+|---|---|---|
+| Hyper Compress | `hyper-compress` 1.1.4 (npm) | `hyper in.pdf out.pdf --preset <level>` |
+| PDF Tools SDK | `pdftools_sdk` 1.21.0 (Python) | [`engines/pdftools.py`](bench/sdk-comparison/engines/pdftools.py) |
+| Apryse SDK | `apryse-sdk` 12.2.1 (Python), PDFNet 12.2.0 | [`engines/apryse.py`](bench/sdk-comparison/engines/apryse.py) |
+| Nutrient .NET SDK | `GdPicture.API` 14.4.11.1 (.NET 10) | [`engines/nutrient/Program.cs`](bench/sdk-comparison/engines/nutrient/Program.cs), `GdPicturePDFReducer` |
+
+Machine: MacBook Pro (Apple M4, 16 GB), macOS 26.2. Tools: Node 22.23.2, Python 3.14, .NET 10.0.105, Poppler 26.02.0, qpdf 12.4.2, SSIMULACRA2 from libjxl 0.11.1.
+
+The 1,000 PDFs were drawn with a fixed seed and stratified by size: 200 files each under 100 KB, 100–500 KB, 0.5–2 MB and 2–10 MB, 93 over 10 MB, and 107 more picked at random. The exact list, with the download link, size, page count and SHA-256 of every file, is [`MANIFEST.csv`](bench/sdk-comparison/MANIFEST.csv).
+
+| Source | Files | What it is |
+|---|---|---|
+| [Common Crawl PDFs](https://digitalcorpora.org/corpora/file-corpora/cc-main-2021-31-pdf-untruncated/) (Digital Corpora) | 489 | PDFs found on the web |
+| [GovDocs1](https://digitalcorpora.org/corpora/file-corpora/files/) (Digital Corpora) | 199 | US government documents |
+| [PubMed Central open access](https://pmc.ncbi.nlm.nih.gov/tools/openftlist/) | 136 | Medical and science papers |
+| [arXiv](https://arxiv.org) | 134 | Preprints |
+| [EUR-Lex](https://eur-lex.europa.eu) | 42 | EU law in several languages |
+
+</details>
+
+<details>
+<summary>Settings for each engine</summary>
+
+| Level | Hyper | PDF Tools | Apryse | Nutrient |
+|---|---|---|---|---|
+| Lossless | preset `lossless` | N/A | N/A | N/A |
+| 200 dpi | preset `low` (200 dpi, JPEG 80) | `Web` profile, 200 dpi, threshold 300, quality 0.8, `BALANCED` | JPEG quality 8/10, above 300 dpi → 200 | downscale to 200 dpi, `ImageQualityHigh` |
+| 150 dpi | preset `medium` (150 dpi, JPEG 50) | `Web`, 150 dpi, threshold 225, quality 0.5 | JPEG quality 5/10, above 225 → 150 | downscale to 150 dpi, `ImageQualityMedium` |
+| 72 dpi | preset `high` (72 dpi, JPEG 20, black and white scans 150 dpi) | `Web`, 72 dpi, threshold 108, quality 0.2 | JPEG quality 2/10, above 108 → 72 | downscale to 72 dpi, `ImageQualityLow` |
+
+All engines: fonts subset and merged, metadata kept.
+
+Black and white scans: no engine was set to reuse similar-looking shapes across a page (lossy JBIG2 pattern matching), which can swap one letter or number for another:
+
+- Hyper stores them with lossless JBIG2.
+- Apryse uses JBIG2 with threshold 10, which its documentation describes as [lossless where possible](https://docs.apryse.com/api/ios/Classes/PTMonoImageSettings.html).
+- Nutrient uses JBIG2 with `JBIG2PMSThreshold` 1.0. Its documentation says [values below 1 can be lossy](https://www.nutrient.io/api/gdpicture/GdPicture.NET.14~GdPicture14.PDFReducerConfiguration~JBIG2PMSThreshold.html).
+- PDF Tools: its SDK documents that "the JBIG2 compression quality is fixed at 1 (lossless)" (`ImageRecompressionOptions.compression_quality`).
+
+Resolution of black and white scans still differs by engine: Hyper keeps full resolution, except at 72 dpi where it uses 150 dpi; PDF Tools and Nutrient shrink them to the level's resolution; Apryse leaves their resolution alone.
+
+</details>
+
+<details>
+<summary>How it was measured</summary>
+
+- **Size:** output bytes. If an engine returned a bigger file, the bigger file counts. A failed file counts as its original size.
+- **Failed:** no output, an error, more than 10 minutes on one file, or a different page count from the original.
+- **Time:** wall time per file, 4 files at a time for every engine. For Hyper, PDF Tools and Apryse this includes starting the process (Node or Python and SDK initialisation). Nutrient's .NET runtime takes about 9 seconds to start, so it ran as 4 long-running processes and its times exclude start-up.
+- **Quality:** pages 1 and 2 of every output are drawn at 100 dpi with Poppler's `pdftoppm` and compared with the original pages using [SSIMULACRA2](https://github.com/cloudinary/ssimulacra2). 100 means identical, 90 and up no visible difference, under 70 visible on close look, under 50 clearly damaged.
+
+Known limitations:
+
+- Quality is scored on the first two pages of each file, drawn by one renderer (Poppler).
+- Times depend on the machine. Compare engines with each other, not with numbers from other hardware.
+
+</details>
+
+<details>
+<summary>Full results by level and by file size</summary>
+
+#### Lossless
+
+| Engine | Output | Saved overall | Median saving per file | Failed | Files made bigger | Total time | Median time per file | Avg page quality (SSIMULACRA2) | Pages < 50 | Pages < 70 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **Hyper** | **2.56 GB** | **18.0%** | **20.6%** | **0** | **0** | **8.0 min** | **0.15 s** | **99.5** | **0.1%** | **0.5%** |
+| PDF Tools | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |
+| Apryse | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |
+| Nutrient | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |
+
+
+#### Low (200 dpi)
+
+| Engine | Output | Saved overall | Median saving per file | Failed | Files made bigger | Total time | Median time per file | Avg page quality (SSIMULACRA2) | Pages < 50 | Pages < 70 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **Hyper** | **1.22 GB** | **61.0%** | **44.5%** | **0** | **0** | **14.5 min** | **0.21 s** | **89.8** | **2.1%** | **10.5%** |
+| PDF Tools | 1.40 GB | 55.1% | 41.4% | 0 | 26 | 20.5 min | 0.81 s | 86.7 | 5.6% | 16.6% |
+| Apryse | 1.82 GB | 41.8% | 29.4% | 1 | 46 | 43.6 min | 2.45 s | 88.4 | 2.7% | 9.3% |
+| Nutrient | 1.40 GB | 55.2% | 42.0% | 2 | 2 | 34.2 min | 0.18 s | 87.8 | 4.4% | 12.3% |
+
+- Hyper vs PDF Tools: Hyper smaller on **704** files, PDF Tools smaller on 250, within 1% on 46 (of 1000 both handled).
+- Hyper vs Apryse: Hyper smaller on **814** files, Apryse smaller on 157, within 1% on 28 (of 999 both handled).
+- Hyper vs Nutrient: Hyper smaller on **543** files, Nutrient smaller on 382, within 1% on 73 (of 998 both handled).
+
+#### Medium (150 dpi)
+
+| Engine | Output | Saved overall | Median saving per file | Failed | Files made bigger | Total time | Median time per file | Avg page quality (SSIMULACRA2) | Pages < 50 | Pages < 70 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **Hyper** | **0.93 GB** | **70.2%** | **54.5%** | **0** | **0** | **17.0 min** | **0.25 s** | **86.4** | **4.4%** | **18.1%** |
+| PDF Tools | 1.10 GB | 64.7% | 50.1% | 0 | 20 | 19.7 min | 0.81 s | 82.9 | 8.6% | 21.4% |
+| Apryse | 1.39 GB | 55.6% | 37.6% | 4 | 42 | 44.1 min | 2.47 s | 85.8 | 4.2% | 14.0% |
+| Nutrient | 1.20 GB | 61.5% | 47.5% | 2 | 2 | 36.7 min | 0.21 s | 82.8 | 8.1% | 19.1% |
+
+- Hyper vs PDF Tools: Hyper smaller on **701** files, PDF Tools smaller on 253, within 1% on 46 (of 1000 both handled).
+- Hyper vs Apryse: Hyper smaller on **808** files, Apryse smaller on 164, within 1% on 24 (of 996 both handled).
+- Hyper vs Nutrient: Hyper smaller on **585** files, Nutrient smaller on 357, within 1% on 56 (of 998 both handled).
+
+#### Highest (72 dpi)
+
+| Engine | Output | Saved overall | Median saving per file | Failed | Files made bigger | Total time | Median time per file | Avg page quality (SSIMULACRA2) | Pages < 50 | Pages < 70 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **Hyper** | **0.63 GB** | **79.9%** | **67.5%** | **0** | **0** | **20.7 min** | **0.33 s** | **67.9** | **29.2%** | **45.0%** |
+| PDF Tools | 0.76 GB | 75.6% | 64.8% | 0 | 18 | 18.9 min | 0.81 s | 72.2 | 23.1% | 38.0% |
+| Apryse | 0.79 GB | 74.6% | 58.9% | 3 | 32 | 44.0 min | 2.45 s | 73.4 | 20.2% | 35.3% |
+| Nutrient | 0.87 GB | 72.0% | 60.1% | 2 | 1 | 35.6 min | 0.17 s | 70.8 | 24.6% | 38.3% |
+
+- Hyper vs PDF Tools: Hyper smaller on **729** files, PDF Tools smaller on 233, within 1% on 38 (of 1000 both handled).
+- Hyper vs Apryse: Hyper smaller on **790** files, Apryse smaller on 175, within 1% on 32 (of 997 both handled).
+- Hyper vs Nutrient: Hyper smaller on **634** files, Nutrient smaller on 309, within 1% on 55 (of 998 both handled).
+
+#### Saved overall by input size
+
+| Level | Engine | < 100 KB | 100–500 KB | 0.5–2 MB | 2–10 MB | > 10 MB |
+|---|---|---|---|---|---|---|
+| **Lossless** | **Hyper** | **27.5%** | **33.5%** | **28.7%** | **19.9%** | **15.3%** |
+| Lossless | PDF Tools | N/A | N/A | N/A | N/A | N/A |
+| Lossless | Apryse | N/A | N/A | N/A | N/A | N/A |
+| Lossless | Nutrient | N/A | N/A | N/A | N/A | N/A |
+| **Low** | **Hyper** | **33.7%** | **44.6%** | **49.3%** | **58.2%** | **64.3%** |
+| Low | PDF Tools | 28.7% | 43.1% | 47.9% | 49.0% | 59.3% |
+| Low | Apryse | 22.8% | 34.8% | 33.3% | 39.5% | 44.3% |
+| Low | Nutrient | 33.1% | 43.1% | 44.3% | 54.1% | 57.5% |
+| **Medium** | **Hyper** | **35.3%** | **48.8%** | **57.2%** | **67.6%** | **73.8%** |
+| Medium | PDF Tools | 32.1% | 48.2% | 56.4% | 59.1% | 68.9% |
+| Medium | Apryse | 23.1% | 37.6% | 42.7% | 54.3% | 58.4% |
+| Medium | Nutrient | 35.5% | 47.3% | 50.4% | 61.3% | 63.6% |
+| **Highest** | **Hyper** | **44.1%** | **58.8%** | **68.3%** | **77.5%** | **83.1%** |
+| Highest | PDF Tools | 36.6% | 56.6% | 67.4% | 69.4% | 80.1% |
+| Highest | Apryse | 30.9% | 50.9% | 61.3% | 72.7% | 78.0% |
+| Highest | Nutrient | 40.0% | 54.6% | 61.0% | 71.4% | 74.4% |
+
+</details>
+
+<details>
+<summary>Reproduce</summary>
+
+Requirements: macOS or Linux, Node 22, Python 3.11 or later, .NET 10, Poppler (`pdftoppm`), qpdf, `ssimulacra2` (from libjxl), `bc` and `perl`. From [`bench/sdk-comparison/`](bench/sdk-comparison/):
+
+```sh
+python3 fetch_corpus.py                        # downloads the 1,000 PDFs and checks every SHA-256
+npm install                                    # hyper-compress 1.1.4
+python3 -m venv .venv && . .venv/bin/activate
+pip install -r requirements.txt --extra-index-url https://pypi.apryse.com
+dotnet build engines/nutrient -c Release -o engines/nutrient/bin
+export APRYSE_KEY=... PDFTOOLS_KEY=... NUTRIENT_KEY=...   # your licence keys
+./run.sh                                       # writes results.csv (takes several hours)
+python3 report.py results.csv                  # prints the tables above
+```
+
+`./run.sh hyper` runs one engine. `python3 report.py` with no argument prints the tables from our own [`RESULTS.csv`](bench/sdk-comparison/RESULTS.csv). Expect sizes to match ours to within a few bytes; PDF Tools and Apryse write the current date and a new document ID into each file.
+
+| File | What it is |
+|---|---|
+| [`MANIFEST.csv`](bench/sdk-comparison/MANIFEST.csv) | The 1,000 PDFs: file name, source, bytes, pages, SHA-256, download link |
+| [`RESULTS.csv`](bench/sdk-comparison/RESULTS.csv) | Every result: engine, level, file, input and output bytes, pass or fail, exit code, seconds, quality of pages 1 and 2 |
+| [`fetch_corpus.py`](bench/sdk-comparison/fetch_corpus.py) | Downloads the corpus and checks it against `MANIFEST.csv` |
+| [`run.sh`](bench/sdk-comparison/run.sh), [`job.sh`](bench/sdk-comparison/job.sh) | Run the engines and score each output |
+| [`engines/`](bench/sdk-comparison/engines) | The exact settings used for PDF Tools, Apryse and Nutrient |
+| [`report.py`](bench/sdk-comparison/report.py) | Builds the tables from a results file |
+
+</details>
+
+### Against open-source tools: Ghostscript, MuPDF and qpdf
+
 Hyper Compress was benchmarked against Ghostscript, MuPDF, and qpdf using **2,104 real world PDFs from four public corpora**, for a total of **27,352 engine runs**.
 
 Visual fidelity was measured with Poppler, which was deliberately chosen as an independent renderer rather than one shared by the engines being tested.
@@ -95,18 +289,18 @@ The full methodology, per-file results, and complete document list are available
 
 Median size reduction at the median worst page SSIM:
 
-| Tier     | Hyper             | Ghostscript   | MuPDF         | qpdf         |
-| -------- | ----------------- | ------------- | ------------- | ------------ |
-| Lossless | **22.4% @ 1.000** | 21.1% @ 0.997 | 4.7% @ 1.000  | 6.3% @ 1.000 |
-| 300 dpi  | **52.3% @ 1.000** | 19.1% @ 0.996 | 14.0% @ 1.000 | n/a          |
-| 150 dpi  | **58.2% @ 0.999** | 42.4% @ 0.994 | 19.4% @ 1.000 | n/a          |
-| 72 dpi   | **64.8% @ 0.996** | 53.9% @ 0.990 | 28.0% @ 0.999 | n/a          |
+| Engine      | Lossless          | 300 dpi           | 150 dpi           | 72 dpi            |
+| ----------- | ----------------- | ----------------- | ----------------- | ----------------- |
+| **Hyper**   | **22.4% @ 1.000** | **52.3% @ 1.000** | **58.2% @ 0.999** | **64.8% @ 0.996** |
+| Ghostscript | 21.1% @ 0.997     | 19.1% @ 0.996     | 42.4% @ 0.994     | 53.9% @ 0.990     |
+| MuPDF       | 4.7% @ 1.000      | 14.0% @ 1.000     | 19.4% @ 1.000     | 28.0% @ 0.999     |
+| qpdf        | 6.3% @ 1.000      | n/a               | n/a               | n/a               |
 
 Robustness across the same benchmark:
 
 | Engine      |  Runs |        Corrupt | Grew the file |
 | ----------- | ----: | -------------: | ------------: |
-| **Hyper**   | 8,416 | **33 (0.39%)** |         **0** |
+| **Hyper**   | **8,416** | **33 (0.39%)** | **0** |
 | qpdf        | 2,104 |      1 (0.05%) |     53 (2.5%) |
 | Ghostscript | 8,416 |    256 (3.04%) | 2,089 (24.8%) |
 | MuPDF       | 8,416 |    333 (3.96%) |     70 (0.8%) |
