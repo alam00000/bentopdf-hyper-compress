@@ -204,3 +204,89 @@ fn main() -> ExitCode {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(s: &str) -> Vec<String> {
+        s.split_whitespace().map(String::from).collect()
+    }
+
+    fn ok(s: &str) -> Parsed {
+        match parse(&args(s)) {
+            Ok(p) => p,
+            Err(Usage::Error(m)) => panic!("{s}: {m}"),
+        }
+    }
+
+    fn err(s: &str) -> String {
+        match parse(&args(s)) {
+            Ok(_) => panic!("{s} should fail"),
+            Err(Usage::Error(m)) => m,
+        }
+    }
+
+    #[test]
+    fn sizes_accept_units_and_decimals() {
+        assert_eq!(parse_size("2MB"), Some(2 * 1024 * 1024));
+        assert_eq!(parse_size("500kb"), Some(500 * 1024));
+        assert_eq!(parse_size("1.5M"), Some(1572864));
+        assert_eq!(parse_size("1234"), Some(1234));
+        assert_eq!(parse_size("10 b"), Some(10));
+        for bad in ["", "MB", "2GB", "1.2.3", ".5MB", "5.MB", "-1"] {
+            assert_eq!(parse_size(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn positional_paths_and_preset() {
+        let p = ok("in.pdf out.pdf --preset high");
+        assert_eq!(p.input.as_deref(), Some("in.pdf"));
+        assert_eq!(p.output.as_deref(), Some("out.pdf"));
+        assert_eq!(p.preset, Some(Preset::High));
+        assert!(ok("in.pdf").output.is_none());
+    }
+
+    #[test]
+    fn set_coerces_booleans_numbers_and_strings() {
+        let p = ok("a.pdf --set grayscale=true --set imageQuality=40 --set colorTarget=cmyk --set minVersion=1.7 --set flattenForms=false");
+        assert_eq!(p.overrides["grayscale"], Value::Bool(true));
+        assert_eq!(p.overrides["imageQuality"].as_f64(), Some(40.0));
+        assert_eq!(p.overrides["colorTarget"], Value::String("cmyk".into()));
+        assert_eq!(p.overrides["minVersion"].as_f64(), Some(1.7));
+        assert_eq!(p.overrides["flattenForms"], Value::Bool(false));
+    }
+
+    #[test]
+    fn shorthands_map_onto_options() {
+        let p = ok("a.pdf --brotli --mrc auto --target-size 2MB --report r.json --password pw");
+        assert_eq!(p.overrides["brotli"], Value::Bool(true));
+        assert_eq!(p.overrides["mrc"], Value::String("auto".into()));
+        assert_eq!(p.target, Some(2 * 1024 * 1024));
+        assert_eq!(p.report.as_deref(), Some("r.json"));
+        assert_eq!(p.password.as_deref(), Some("pw"));
+    }
+
+    #[test]
+    fn help_and_version_flags() {
+        for f in ["--help", "-h"] {
+            assert!(ok(f).help);
+        }
+        for f in ["--version", "-v", "-V"] {
+            assert!(ok(f).version);
+        }
+    }
+
+    #[test]
+    fn bad_usage_is_reported() {
+        assert!(err("a.pdf --preset huge").contains("--preset"));
+        assert!(err("a.pdf --mrc maybe").contains("--mrc"));
+        assert!(err("a.pdf --target-size lots").contains("--target-size"));
+        assert!(err("a.pdf --target-size 0").contains("greater than zero"));
+        assert!(err("a.pdf --set novalue").contains("--set"));
+        assert!(err("a.pdf --set =1").contains("--set"));
+        assert!(err("a.pdf --report").contains("--report"));
+        assert!(err("a.pdf --bogus").contains("unknown flag"));
+    }
+}

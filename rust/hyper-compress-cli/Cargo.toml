@@ -12,3 +12,6 @@ path = "src/main.rs"
 [dependencies]
 hyper-compress = { path = "../hyper-compress" }
 serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"
