@@ -61,7 +61,9 @@ fn request(s: &Server, method: &str, path: &str, headers: &[(&str, &str)], body:
     stream.write_all(head.as_bytes()).unwrap();
     let _ = stream.write_all(body);
     let mut raw = Vec::new();
-    stream.read_to_end(&mut raw).unwrap();
+    if let Err(e) = stream.read_to_end(&mut raw) {
+        assert!(e.kind() == std::io::ErrorKind::ConnectionReset && complete(&raw), "{e} after {} bytes", raw.len());
+    }
     let split = raw.windows(4).position(|w| w == b"\r\n\r\n").expect("no header end");
     let head = String::from_utf8_lossy(&raw[..split]).into_owned();
     let mut lines = head.lines();
@@ -72,6 +74,15 @@ fn request(s: &Server, method: &str, path: &str, headers: &[(&str, &str)], body:
         body = dechunk(&body);
     }
     Resp { status, headers, body }
+}
+
+fn complete(raw: &[u8]) -> bool {
+    let Some(split) = raw.windows(4).position(|w| w == b"\r\n\r\n") else { return false };
+    let head = String::from_utf8_lossy(&raw[..split]).to_ascii_lowercase();
+    head.lines()
+        .find_map(|l| l.strip_prefix("content-length:"))
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .is_some_and(|n| raw.len() >= split + 4 + n)
 }
 
 fn dechunk(mut b: &[u8]) -> Vec<u8> {
@@ -319,4 +330,16 @@ fn burst_respects_concurrency_and_leaves_no_temp_files() {
     assert_eq!(request(&s, "GET", "/healthz", &[], b"").json(), serde_json::json!({ "ok": true, "active": 0, "queued": 0 }));
     let left: Vec<_> = std::fs::read_dir(tmp.path()).unwrap().flatten().map(|e| e.file_name()).collect();
     assert!(left.is_empty(), "temp files left behind: {left:?}");
+}
+
+#[test]
+fn early_errors_reach_clients_that_upload_a_large_body() {
+    let s = start(&[]);
+    let mut big = b"%PDF-1.7\n".to_vec();
+    big.resize(800 * 1024, b' ');
+    for path in ["/api/compress?preset=huge", "/api/compress?options=notjson", "/nope"] {
+        let r = post(&s, path, &big);
+        assert!(r.status >= 400 && r.status < 500, "{path}: {}", r.status);
+        assert!(r.json()["error"].is_string(), "{path}");
+    }
 }

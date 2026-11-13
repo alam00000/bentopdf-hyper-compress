@@ -81,11 +81,17 @@ fn header(name: &str, value: &str) -> Header {
     Header::from_bytes(name.as_bytes(), value.as_bytes()).unwrap()
 }
 
-fn send_json(req: Request, status: u16, body: Value) {
+fn drain(req: &mut Request) {
+    let _ = std::io::copy(&mut req.as_reader().take(1024 * 1024), &mut std::io::sink());
+}
+
+fn send_json(mut req: Request, status: u16, body: Value) {
+    drain(&mut req);
     let _ = req.respond(Response::from_string(body.to_string()).with_status_code(status).with_header(header("content-type", "application/json")));
 }
 
-fn send_busy(req: Request) {
+fn send_busy(mut req: Request) {
+    drain(&mut req);
     let body = json!({ "error": "busy", "detail": "queue full, retry later" }).to_string();
     let _ = req.respond(
         Response::from_string(body)
