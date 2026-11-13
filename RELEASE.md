@@ -24,14 +24,16 @@ CI does the rest, in order:
 1. `release.yml` builds, on real runners from the pinned PDFium checkout:
    - `hyper-compress-<tag>-macos-arm64.tar.gz`: hpdf-worker, hpdf-render, qpdf
      (stripped and signed by `scripts/harden.sh`)
-   - `hyper-compress-<tag>-linux-x64.tar.gz`: same three binaries
+   - `hyper-compress-<tag>-linux-x64.tar.gz` and `-linux-arm64.tar.gz`: same
+     three binaries, each built on a native runner for its CPU
    - `hyper-compress-<tag>-windows-x64.tar.gz`: hpdf-worker.exe,
      hpdf-render.exe, and qpdf.exe with its runtime DLLs (fetched
      checksum-pinned from the official qpdf release)
    - `hyper-compress-<tag>-wasm.tar.gz`: the WebAssembly engine module
    - `libhypercompress-<tag>-macos-arm64.tar.gz`: the C API dylib
-   - the docker image, pushed to `ghcr.io/alam00000/bentopdf-hyper-compress`
-     as `<tag>` and `latest`
+   - the docker image, built on an x64 and an ARM64 runner, pushed as
+     `<tag>-amd64` and `<tag>-arm64`, then merged into one multi-arch
+     `<tag>` and `latest` on `ghcr.io/alam00000/bentopdf-hyper-compress`
 2. It publishes a GitHub Release with a `SHA256SUMS` file covering every
    artifact. The Windows job is allowed to fail without blocking the release;
    macOS and Linux are required.
@@ -39,10 +41,15 @@ CI does the rest, in order:
    every package version from the tag, fills the platform packages from the
    release tarballs, assembles `hyper-compress-wasm` from the wasm tarball, and
    publishes `hyper-compress`, `hyper-compress-wasm`,
-   `hyper-compress-darwin-arm64`, `hyper-compress-linux-x64` and
-   `hyper-compress-win32-x64` with provenance. A platform whose tarball is
-   missing is skipped with a log line instead of aborting the publish; it
-   ships in the next release.
+   `hyper-compress-darwin-arm64`, `hyper-compress-linux-x64`,
+   `hyper-compress-linux-arm64` and `hyper-compress-win32-x64` with
+   provenance. A platform whose tarball is missing, or whose publish fails, is
+   skipped with a log line instead of aborting the publish, and is left out of
+   `hyper-compress`'s optional dependencies; it ships in the next release.
+
+   A new platform package must be published once by hand before trusted
+   publishing can take over, because npm only lets you add a trusted publisher
+   to a package that exists.
 
    It runs as its own workflow rather than a reusable one called by
    `release.yml` on purpose: npm's trusted publishing validates the OIDC claim

@@ -60,7 +60,7 @@ jobs:
           }
           const root = JSON.parse(fs.readFileSync('package.json', 'utf8'));
           root.optionalDependencies = {};
-          for (const name of ['hyper-compress-darwin-arm64', 'hyper-compress-linux-x64', 'hyper-compress-win32-x64']) {
+          for (const name of ['hyper-compress-darwin-arm64', 'hyper-compress-linux-x64', 'hyper-compress-linux-arm64', 'hyper-compress-win32-x64']) {
             root.optionalDependencies[name] = version;
           }
           fs.writeFileSync('package.json', JSON.stringify(root, null, 2) + '\n');
@@ -90,22 +90,28 @@ jobs:
           }
           extract macos-arm64 packages/npm/hyper-compress-darwin-arm64/bin
           extract linux-x64 packages/npm/hyper-compress-linux-x64/bin
+          extract linux-arm64 packages/npm/hyper-compress-linux-arm64/bin
           extract windows-x64 packages/npm/hyper-compress-win32-x64/bin
           extract wasm wasm/out
           chmod +x packages/npm/*/bin/* 2>/dev/null || true
           if [ -f wasm/out/hyper-compress.wasm ]; then
             bash scripts/pack-wasm-npm.sh
           fi
-          for d in hyper-compress-darwin-arm64 hyper-compress-linux-x64 hyper-compress-win32-x64; do
+          for d in hyper-compress-darwin-arm64 hyper-compress-linux-x64 hyper-compress-linux-arm64 hyper-compress-win32-x64; do
             cp LICENSE "packages/npm/$d/LICENSE"
           done
       - name: publish engine packages
         run: |
           published=0
-          for d in hyper-compress-darwin-arm64 hyper-compress-linux-x64 hyper-compress-win32-x64; do
+          : > published-platforms.txt
+          for d in hyper-compress-darwin-arm64 hyper-compress-linux-x64 hyper-compress-linux-arm64 hyper-compress-win32-x64; do
             if [ -n "$(find "packages/npm/$d/bin" -type f ! -name .gitkeep 2>/dev/null | head -1)" ]; then
-              (cd "packages/npm/$d" && npm publish --provenance --access public)
-              published=$((published + 1))
+              if (cd "packages/npm/$d" && npm publish --provenance --access public); then
+                echo "$d" >> published-platforms.txt
+                published=$((published + 1))
+              else
+                echo "::warning::publishing $d failed; it is left out of hyper-compress's optional dependencies"
+              fi
             else
               echo "skipping $d: no binaries"
             fi
@@ -119,5 +125,17 @@ jobs:
           [ "$published" -gt 0 ] || { echo "no engine packages could be published"; exit 1; }
       - name: use the npm readme
         run: cp docs/npm-README.md README.md
+      - name: pin only the published platform packages
+        run: |
+          node - <<'EOF'
+          const fs = require('fs');
+          const published = fs.readFileSync('published-platforms.txt', 'utf8').split('\n').filter(Boolean);
+          const root = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          for (const name of Object.keys(root.optionalDependencies)) {
+            if (!published.includes(name)) delete root.optionalDependencies[name];
+          }
+          fs.writeFileSync('package.json', JSON.stringify(root, null, 2) + '\n');
+          console.log(`optional dependencies: ${Object.keys(root.optionalDependencies).join(', ')}`);
+          EOF
       - name: publish main package
         run: npm publish --provenance --access public --ignore-scripts

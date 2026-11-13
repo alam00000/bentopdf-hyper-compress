@@ -1,10 +1,18 @@
 FROM ubuntu:24.04 AS native
-RUN printf '%s\n' http://mirrors.edge.kernel.org/ubuntu/ http://mirrors.mit.edu/ubuntu/ http://mirror.math.princeton.edu/pub/ubuntu/ http://azure.archive.ubuntu.com/ubuntu/ http://archive.ubuntu.com/ubuntu/ > /etc/apt/mirrors.txt \
+RUN if [ "$(dpkg --print-architecture)" = amd64 ]; then \
+      printf '%s\n' http://mirrors.edge.kernel.org/ubuntu/ http://mirrors.mit.edu/ubuntu/ http://mirror.math.princeton.edu/pub/ubuntu/ http://azure.archive.ubuntu.com/ubuntu/ http://archive.ubuntu.com/ubuntu/ > /etc/apt/mirrors.txt; \
+    else \
+      printf '%s\n' http://ports.ubuntu.com/ubuntu-ports/ http://mirrors.mit.edu/ubuntu-ports/ > /etc/apt/mirrors.txt; \
+    fi \
     && sed -i 's#^URIs: .*#URIs: mirror+file:/etc/apt/mirrors.txt#' /etc/apt/sources.list.d/ubuntu.sources \
     && printf 'Acquire::Retries "5";\nAcquire::http::Timeout "20";\n' > /etc/apt/apt.conf.d/80-retries
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates python3 xz-utils lsb-release file \
     build-essential cmake ninja-build pkg-config rsync \
+    wget gnupg software-properties-common \
+    && if [ "$(dpkg --print-architecture)" = arm64 ]; then \
+      curl -fsSL -o /tmp/llvm.sh https://apt.llvm.org/llvm.sh && bash /tmp/llvm.sh 23; \
+    fi \
     && rm -rf /var/lib/apt/lists/*
 RUN git clone --depth 1 \
     https://chromium.googlesource.com/chromium/tools/depot_tools.git /opt/depot_tools
@@ -13,7 +21,13 @@ WORKDIR /engine
 COPY core/build/apply-tree.sh core/build/apply-tree.sh
 RUN mkdir -p core/build/gsrc && cd core/build/gsrc \
     && PIN="$(grep '^PDFIUM_PIN=' ../apply-tree.sh | cut -d= -f2)" \
-    && gclient config --unmanaged https://pdfium.googlesource.com/pdfium.git \
+    && if [ "$(dpkg --print-architecture)" = arm64 ]; then \
+      GN="$(curl -fsSL "https://pdfium.googlesource.com/pdfium/+/$PIN/DEPS?format=TEXT" | base64 -d | grep -o "'gn_version': '[^']*'" | cut -d"'" -f4)" \
+      && gclient config --unmanaged https://pdfium.googlesource.com/pdfium.git \
+        --custom-var=reclient_package=gn/gn/ --custom-var="reclient_version=$GN"; \
+    else \
+      gclient config --unmanaged https://pdfium.googlesource.com/pdfium.git; \
+    fi \
     && gclient sync --revision "pdfium@$PIN" -D --no-history
 COPY . .
 RUN docker/build-jpegli-linux.sh && docker/build-linux.sh

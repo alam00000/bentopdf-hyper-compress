@@ -127,8 +127,10 @@ for the per-platform release builds.
 
 ## Other platforms
 
-The checked build recipe is macOS arm64. Linux x64 builds the same way with
-`target_os="linux"` in `args.gn`; `docker/Dockerfile` and
+The checked build recipe is macOS arm64. Linux x64 and Linux arm64 build the
+same way with `target_os="linux"` in `args.gn`; `docker/build-linux.sh` picks
+the CPU from the machine it runs on, so build arm64 on an arm64 host (the
+release uses GitHub's `ubuntu-24.04-arm` runners). `docker/Dockerfile` and
 `.clusterfuzzlite/build.sh` both script it end to end. Windows needs a PDFium
 Windows build with the same source-set additions plus the platform link step;
 the leptonica and afdko overlays already carry the clang-cl fixes.

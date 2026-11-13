@@ -36,3 +36,4 @@ docs/options.md
 docs/.vitepress/cache/
 docs/.vitepress/dist/
 .DS_Store
+core/build/llvm-shim/

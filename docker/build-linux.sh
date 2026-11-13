@@ -26,6 +26,17 @@ JP="$ROOT/core/third_party/jpegli/linux-$CPU"
 
 "$ROOT/core/build/apply-sources.sh" "$SRC"
 
+LLVM=""
+if ! "$SRC/third_party/llvm-build/Release+Asserts/bin/clang" --version >/dev/null 2>&1; then
+  LLVM="${HYPER_LLVM:-$(ls -d /usr/lib/llvm-* 2>/dev/null | sort -V | tail -1)}"
+  if [ ! -x "$LLVM/bin/clang" ]; then
+    echo "ERROR: PDFium's clang does not run on $(uname -m) and no LLVM was found." >&2
+    echo "  install one from https://apt.llvm.org or set HYPER_LLVM to its prefix" >&2
+    exit 1
+  fi
+  echo "using $LLVM ($("$LLVM/bin/clang" --version | head -1))"
+fi
+
 OUTDIR="out/linux-$CPU"
 cd "$SRC"
 mkdir -p "$OUTDIR"
@@ -48,15 +59,28 @@ symbol_level = 0
 target_os = "linux"
 target_cpu = "$CPU"
 ARGS
+if [ -n "$LLVM" ]; then
+  MAJOR="$("$LLVM/bin/clang" -dumpversion | cut -d. -f1)"
+  TRIPLE="$("$LLVM/bin/clang" -print-target-triple)"
+  BUILTINS="$("$LLVM/bin/clang" -print-libgcc-file-name -rtlib=compiler-rt)"
+  [ -f "$BUILTINS" ] || { echo "ERROR: compiler-rt builtins missing ($BUILTINS); install libclang-rt-$MAJOR-dev" >&2; exit 1; }
+  SHIM="$ROOT/core/build/llvm-shim"
+  rm -rf "$SHIM"
+  mkdir -p "$SHIM/lib/clang/$MAJOR/lib/$TRIPLE"
+  ln -s "$LLVM/bin" "$SHIM/bin"
+  ln -s "$BUILTINS" "$SHIM/lib/clang/$MAJOR/lib/$TRIPLE/libclang_rt.builtins.a"
+  printf 'clang_base_path = "%s"\nclang_version = "%s"\n' "$SHIM" "$MAJOR" >> "$OUTDIR/args.gn"
+fi
 buildtools/linux64/gn gen "$OUTDIR" --root=.
 third_party/ninja/ninja -C "$OUTDIR" pdfium
 
 AR="$SRC/$OUTDIR/obj/libpdfium.a"
 [ -f "$AR" ] || { echo "ERROR: $AR not produced." >&2; exit 1; }
-CXX="$SRC/third_party/llvm-build/Release+Asserts/bin/clang++"
+TOOLS="${LLVM:-$SRC/third_party/llvm-build/Release+Asserts}/bin"
+CXX="$TOOLS/clang++"
 LDFLAGS=""
-if command -v "$CXX" >/dev/null 2>&1; then
-  [ -x "$SRC/third_party/llvm-build/Release+Asserts/bin/ld.lld" ] && LDFLAGS="-fuse-ld=lld"
+if "$CXX" --version >/dev/null 2>&1; then
+  [ -x "$TOOLS/ld.lld" ] && LDFLAGS="-fuse-ld=lld"
 else
   CXX=clang++
   command -v ld.lld >/dev/null 2>&1 && LDFLAGS="-fuse-ld=lld"
@@ -64,8 +88,8 @@ fi
 
 ENGINE_O="$SRC/$OUTDIR/obj/fpdfsdk/fpdfsdk/fpdf_compress.o"
 [ -f "$ENGINE_O" ] || { echo "ERROR: $ENGINE_O not produced." >&2; exit 1; }
-NM="$SRC/third_party/llvm-build/Release+Asserts/bin/llvm-nm"
-[ -x "$NM" ] || NM=nm
+NM="$TOOLS/llvm-nm"
+"$NM" --version >/dev/null 2>&1 || NM=nm
 if ! "$NM" "$ENGINE_O" | grep 'T HyperCompress_Execute' >/dev/null; then
   echo "ERROR: engine object does not export HyperCompress_*." >&2
   "$NM" --version >&2 || true
