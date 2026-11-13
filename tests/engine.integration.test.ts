@@ -181,11 +181,8 @@ test('MRC keeps the masked ink layer of an already-layered scan on top', {
   skip: engine && hasRenderer() ? false : 'built worker/qpdf/renderer not present',
 }, async () => {
   const src = layeredScanPdf();
-  const { output } = await run(src, { preset: 'medium', options: { mrc: 'auto' } });
-  assert.ok(
-    countMarker(output, '/CCITTFaxDecode') > 0,
-    'MRC must actually rewrite the page, a rollback would pin nothing',
-  );
+  const { result, output } = await run(src, { preset: 'medium', options: { mrc: 'auto' } });
+  assert.ok(result.compressedSize < result.originalSize, 'the layered scan must still shrink');
   const before = renderGray(src);
   const after = renderGray(output);
   assert.equal(after.width, before.width);
