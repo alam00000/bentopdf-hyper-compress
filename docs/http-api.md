@@ -225,9 +225,16 @@ curl -o output.pdf --data-binary @input.pdf \
   'http://localhost:8080/api/compress'
 ```
 
-The same request from other languages:
+The request with custom options, in each language:
 
 ::: code-group
+
+```bash [curl]
+curl -D - -o output.pdf --data-binary @input.pdf \
+  --url-query 'preset=custom' \
+  --url-query 'options={"imageQuality":35,"grayscale":true}' \
+  'http://localhost:8080/api/compress'
+```
 
 ```js [Node.js]
 import { readFile, writeFile } from 'node:fs/promises';
@@ -287,9 +294,166 @@ print(f"{res.headers['x-original-size']} -> {res.headers['x-compressed-size']} b
 print(warnings)
 ```
 
+```ruby [Ruby]
+require "json"
+require "net/http"
+require "uri"
+
+uri = URI("http://localhost:8080/api/compress")
+uri.query = URI.encode_www_form(
+  preset: "custom",
+  options: JSON.generate({ imageQuality: 35, grayscale: true })
+)
+
+req = Net::HTTP::Post.new(uri, "Content-Type" => "application/pdf")
+req.body = File.binread("input.pdf")
+res = Net::HTTP.start(uri.host, uri.port, read_timeout: 600) { |http| http.request(req) }
+
+raise "HTTP #{res.code}: #{JSON.parse(res.body)['error']}" unless res.is_a?(Net::HTTPSuccess)
+
+File.binwrite("output.pdf", res.body)
+
+header = res["x-warnings"].to_s
+warnings = header.empty? ? [] : JSON.parse(URI::DEFAULT_PARSER.unescape(header))
+
+puts "#{res['x-original-size']} -> #{res['x-compressed-size']} bytes"
+p warnings
+```
+
+```go [Go]
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+)
+
+func main() {
+	input, err := os.ReadFile("input.pdf")
+	if err != nil {
+		panic(err)
+	}
+	options, _ := json.Marshal(map[string]any{"imageQuality": 35, "grayscale": true})
+	query := url.Values{"preset": {"custom"}, "options": {string(options)}}
+
+	res, err := http.Post("http://localhost:8080/api/compress?"+query.Encode(), "application/pdf", bytes.NewReader(input))
+	if err != nil {
+		panic(err)
+	}
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		panic(err)
+	}
+
+	if res.StatusCode != http.StatusOK {
+		var e struct{ Error string }
+		json.Unmarshal(body, &e)
+		panic(fmt.Sprintf("HTTP %d: %s", res.StatusCode, e.Error))
+	}
+
+	if err := os.WriteFile("output.pdf", body, 0o644); err != nil {
+		panic(err)
+	}
+
+	warnings := []string{}
+	if h := res.Header.Get("X-Warnings"); h != "" {
+		decoded, _ := url.PathUnescape(h)
+		json.Unmarshal([]byte(decoded), &warnings)
+	}
+
+	fmt.Printf("%s -> %s bytes\n", res.Header.Get("X-Original-Size"), res.Header.Get("X-Compressed-Size"))
+	fmt.Println(warnings)
+}
+```
+
+```java [Java]
+import java.net.URI;
+import java.net.URLDecoder;
+import java.net.URLEncoder;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
+import static java.nio.charset.StandardCharsets.UTF_8;
+
+public class Compress {
+    public static void main(String[] args) throws Exception {
+        String options = "{\"imageQuality\":35,\"grayscale\":true}";
+        URI uri = URI.create("http://localhost:8080/api/compress?preset=custom&options="
+                + URLEncoder.encode(options, UTF_8));
+
+        HttpRequest request = HttpRequest.newBuilder(uri)
+                .header("Content-Type", "application/pdf")
+                .POST(HttpRequest.BodyPublishers.ofFile(Path.of("input.pdf")))
+                .build();
+        HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build();
+        HttpResponse<byte[]> res = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
+
+        if (res.statusCode() != 200) {
+            throw new RuntimeException("HTTP " + res.statusCode() + ": " + new String(res.body(), UTF_8));
+        }
+
+        Files.write(Path.of("output.pdf"), res.body());
+
+        String header = res.headers().firstValue("x-warnings").orElse("");
+        String warnings = header.isEmpty() ? "[]" : URLDecoder.decode(header, UTF_8);
+
+        System.out.println(res.headers().firstValue("x-original-size").orElse("") + " -> "
+                + res.headers().firstValue("x-compressed-size").orElse("") + " bytes");
+        System.out.println(warnings);
+    }
+}
+```
+
+```php [PHP]
+<?php
+$query = http_build_query([
+    'preset' => 'custom',
+    'options' => json_encode(['imageQuality' => 35, 'grayscale' => true]),
+]);
+
+$headers = [];
+$ch = curl_init("http://localhost:8080/api/compress?$query");
+curl_setopt_array($ch, [
+    CURLOPT_POST => true,
+    CURLOPT_POSTFIELDS => file_get_contents('input.pdf'),
+    CURLOPT_HTTPHEADER => ['Content-Type: application/pdf'],
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_HEADERFUNCTION => function ($ch, $line) use (&$headers) {
+        $parts = explode(':', $line, 2);
+        if (count($parts) === 2) {
+            $headers[strtolower(trim($parts[0]))] = trim($parts[1]);
+        }
+        return strlen($line);
+    },
+]);
+$body = curl_exec($ch);
+$status = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+
+if ($status !== 200) {
+    throw new RuntimeException("HTTP $status: " . json_decode($body, true)['error']);
+}
+
+file_put_contents('output.pdf', $body);
+
+$header = $headers['x-warnings'] ?? '';
+$warnings = $header === '' ? [] : json_decode(rawurldecode($header), true);
+
+echo "{$headers['x-original-size']} -> {$headers['x-compressed-size']} bytes\n";
+print_r($warnings);
+```
+
 :::
 
-The Node.js sample uses the built-in `fetch` of Node.js 22; save it as `compress.mjs`. The Python sample needs the [`requests`](https://pypi.org/project/requests/) package (`pip install requests`).
+The Node.js sample uses the built-in `fetch` of Node.js 22; save it as `compress.mjs`. The Python sample needs the [`requests`](https://pypi.org/project/requests/) package (`pip install requests`). The Ruby and Go samples use only the standard library; run them with `ruby compress.rb` and `go run main.go`. The Java sample needs Java 11 or newer; save it as `Compress.java` and run `java Compress.java`. It asks for HTTP/1.1, because Java's client otherwise tries to upgrade the connection to HTTP/2. The PHP sample needs the `curl` extension.
 
 ### Decode X-Warnings
 
@@ -299,6 +463,10 @@ The Node.js sample uses the built-in `fetch` of Node.js 22; save it as `compress
 |---|---|
 | JavaScript | `h ? JSON.parse(decodeURIComponent(h)) : []` |
 | Python | `json.loads(urllib.parse.unquote(h)) if h else []` |
+| Ruby | `h.empty? ? [] : JSON.parse(URI::DEFAULT_PARSER.unescape(h))` |
+| Go | `s, _ := url.PathUnescape(h); json.Unmarshal([]byte(s), &warnings)` |
+| Java | `h.isEmpty() ? "[]" : URLDecoder.decode(h, UTF_8)`, then parse with your JSON library |
+| PHP | `$h === '' ? [] : json_decode(rawurldecode($h), true)` |
 
 A missed size target, for example, gives:
 

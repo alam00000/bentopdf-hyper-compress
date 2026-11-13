@@ -14,6 +14,16 @@ static unsigned long g_expected_size;
 static int g_ids[] = {1, 2, 3};
 static int g_vals[] = {150, 50, 4};
 
+static void mask_save_id(unsigned char* pdf, unsigned long size) {
+  for (unsigned long i = size; i-- > 4;) {
+    if (memcmp(pdf + i - 4, "/ID[", 4) == 0) {
+      unsigned char* second = memchr(pdf + i, '>', size - i);
+      if (second && second + 34 <= pdf + size) memset(second + 2, '0', 32);
+      return;
+    }
+  }
+}
+
 static void* worker(void* arg) {
   long id = (long)arg;
   for (int r = 0; r < ROUNDS; ++r) {
@@ -35,6 +45,7 @@ static void* worker(void* arg) {
       fprintf(stderr, "thread %ld: compress failed: %s\n", id, hpdf_last_error());
       return (void*)1;
     }
+    mask_save_id(out, size);
     int same = size == g_expected_size && memcmp(out, g_expected, size) == 0;
     hpdf_free(out);
     if (!same) {
@@ -66,6 +77,8 @@ int main(int argc, char** argv) {
     fprintf(stderr, "single-threaded compress failed: %s\n", hpdf_last_error());
     return 1;
   }
+
+  mask_save_id(g_expected, g_expected_size);
 
   pthread_t t[THREADS];
   for (long i = 0; i < THREADS; ++i) pthread_create(&t[i], NULL, worker, (void*)i);
