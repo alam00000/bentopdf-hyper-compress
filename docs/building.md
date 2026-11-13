@@ -251,6 +251,55 @@ What runs in CI:
 
 Releases are built in CI from a version tag, on real machines for each platform. [`RELEASE.md`](https://github.com/alam00000/bentopdf-hyper-compress/blob/main/RELEASE.md) describes the release command, the files each release attaches, the Docker images and the npm publish. [Platforms](/platforms#release-files) lists the release files.
 
+## Every repository command
+
+### make
+
+| Command | What it does |
+|---|---|
+| `make build` | Patches the PDFium checkout and links the native engine (`core/build/apply-tree.sh`, then `core/build/build-native.sh`). macOS. |
+| `make wasm` | Builds PDFium for WebAssembly and then the Hyper module (`wasm/build-pdfium-wasm.sh`, `wasm/build-wasm.sh`). Needs Emscripten. |
+| `make check` | Runs `typecheck`, `lint`, `test` and `version-check`. Run it before every commit. |
+| `make typecheck` | TypeScript type check, no output files. |
+| `make lint` | ESLint over the SDK, CLI, scripts, tests, WebAssembly glue and web page. |
+| `make test` | Builds the TypeScript and runs every test in `tests/`. Engine tests skip when `cli/prebuilt` has no engine. |
+| `make version-check` | Fails when `package.json`, `HPDF_VERSION` in `sdk/native/hpdf.h` and the Rust workspace version in `rust/Cargo.toml` differ. |
+| `make smoke PDF=path/to.pdf` | Compresses one file with every preset and prints the results. |
+| `make verify PDF=path/to.pdf` | Checks that the WebAssembly and native builds give the same bytes and pixels for one file. |
+| `make regress` | Runs the regression failset in `tests/regression/` at every preset; a clean run reports zero failing pairs. |
+| `make bench CORPUS=path/to/folder` | Benchmarks a folder of PDFs and writes `bench/results.json`. |
+| `make harden` | Strips and code-signs the macOS engine programs, the C library and the Node.js addon (`scripts/harden.sh`). Set `HPDF_SIGN_IDENTITY` to sign with a real identity instead of an ad hoc one. |
+| `make manifest` | Rewrites `BINARIES.sha256` with the checksums of the built binaries. |
+| `make fuzz` | Builds the libFuzzer harness and fuzzes for 60 seconds. |
+| `make clean` | Deletes `dist`, `core/build/out`, `wasm/out` and `fuzz/out`. |
+
+### npm
+
+| Command | What it does |
+|---|---|
+| `npm run build` | Compiles the TypeScript into `dist/`. |
+| `npm run typecheck` | Type check only. |
+| `npm run lint` | Same as `make lint`. |
+| `npm test` | Builds, then runs every test in `tests/`. |
+| `npm run smoke` | Builds, then runs the smoke script. |
+| `npm run hyper -- <args>` | Builds, then runs the npm `hyper` CLI from the checkout, for example `npm run hyper -- input.pdf output.pdf`. |
+| `npm run serve` | Builds, then starts the Rust HTTP server with cargo on port 8080. |
+| `npm run docs:dev` | Regenerates the options page and serves these docs locally with live reload. |
+| `npm run docs:build` | Regenerates the options page and builds the docs site into `docs/.vitepress/dist`. It fails on any broken internal link. |
+| `npm run release` | Releases a patch version: stamps every package, the C header and the Rust crates, runs `make check`, commits, tags and pushes. Only from an up-to-date, clean `main`. Set `DRY_RUN=1` to only check. |
+| `npm run release:minor`, `npm run release:major` | The same for a minor or major version. |
+
+`prepublishOnly` runs `npm run build` automatically before `npm publish`.
+
+### Build settings
+
+| Variable | Used by | What it does |
+|---|---|---|
+| `HYPER_LLVM` | `docker/build-linux.sh` | The LLVM installation to compile PDFium with when PDFium's own compiler cannot run, as on Linux ARM64. By default the newest `/usr/lib/llvm-*` is used. |
+| `HYPER_JPEGLI_WORK` | `docker/build-jpegli-linux.sh` | Where the jpegli source is cloned and built. Default `docker/build-work`. |
+| `PDFIUM_SRC` | `docker/build-linux.sh` | A PDFium checkout to use instead of `core/build/gsrc/pdfium`. |
+| `HPDF_SIGN_IDENTITY` | `scripts/harden.sh` | The macOS code-signing identity. Default `-` (ad hoc). |
+
 ## Troubleshooting
 
 **`ERROR: tree at <commit>, pin is <commit>`.** Your PDFium checkout is at a different commit. Run `gclient sync --revision pdfium@<pin> -D` in `core/build/gsrc`.
