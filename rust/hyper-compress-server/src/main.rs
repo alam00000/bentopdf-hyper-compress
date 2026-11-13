@@ -85,8 +85,22 @@ fn send_json(req: Request, status: u16, body: Value) {
     let _ = req.respond(Response::from_string(body.to_string()).with_status_code(status).with_header(header("content-type", "application/json")));
 }
 
+fn send_busy(req: Request) {
+    let body = json!({ "error": "busy", "detail": "queue full, retry later" }).to_string();
+    let _ = req.respond(
+        Response::from_string(body)
+            .with_status_code(429)
+            .with_header(header("content-type", "application/json"))
+            .with_header(header("retry-after", "1")),
+    );
+}
+
 fn get_header(req: &Request, name: &str) -> Option<String> {
     req.headers().iter().find(|h| h.field.as_str().as_str().eq_ignore_ascii_case(name)).map(|h| h.value.as_str().to_string())
+}
+
+fn password(req: &Request) -> Option<String> {
+    get_header(req, "x-password-encoded").map(|v| decode_component(&v)).or_else(|| get_header(req, "x-password"))
 }
 
 fn authorized(req: &Request, cfg: &Config) -> bool {
@@ -141,6 +155,10 @@ fn decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+fn decode_component(s: &str) -> String {
+    decode(&s.replace('+', "%2B"))
+}
+
 fn encode_component(s: &str) -> String {
     let mut out = String::new();
     for b in s.bytes() {
@@ -189,10 +207,10 @@ fn handle_compress(mut req: Request, cfg: &Config, slots: &Slots) {
     if param("preservePdfa").as_deref() == Some("true") {
         options.insert("preserveConformance".into(), Value::Bool(true));
     }
-    let password = get_header(&req, "x-password");
+    let password = password(&req);
 
     let Some(_slot) = slots.acquire(cfg) else {
-        return send_json(req, 429, json!({ "error": "busy", "detail": "queue full, retry later" }));
+        return send_busy(req);
     };
     let Ok(dir) = tempfile::Builder::new().prefix("hyperd-").tempdir() else {
         return send_json(req, 500, json!({ "error": "internal" }));
@@ -232,7 +250,9 @@ fn handle_compress(mut req: Request, cfg: &Config, slots: &Slots) {
                 .with_header(header("x-original-size", &r.original_size.to_string()))
                 .with_header(header("x-compressed-size", &r.compressed_size.to_string()))
                 .with_header(header("x-signed", &r.signed.to_string()))
+                .with_header(header("x-signatures-removed", &r.signatures_removed.to_string()))
                 .with_header(header("x-pdfa", &pdfa))
+                .with_header(header("x-pdfa-preserved", &r.pdfa_preserved.to_string()))
                 .with_header(header("x-met-target", &met))
                 .with_header(header("x-warnings", &warnings));
             let _ = req.respond(resp);
@@ -249,9 +269,9 @@ fn handle_compress(mut req: Request, cfg: &Config, slots: &Slots) {
 }
 
 fn handle_verify(mut req: Request, cfg: &Config, slots: &Slots) {
-    let password = get_header(&req, "x-password").unwrap_or_default();
+    let password = password(&req).unwrap_or_default();
     let Some(_slot) = slots.acquire(cfg) else {
-        return send_json(req, 429, json!({ "error": "busy", "detail": "queue full, retry later" }));
+        return send_busy(req);
     };
     let Ok(dir) = tempfile::Builder::new().prefix("hyperv-").tempdir() else {
         return send_json(req, 500, json!({ "error": "internal" }));
@@ -272,14 +292,18 @@ fn handle_verify(mut req: Request, cfg: &Config, slots: &Slots) {
 fn static_file(req: Request, cfg: &Config, url_path: &str) -> Option<Request> {
     let ok_path = url_path.len() > 1
         && (url_path.starts_with("/dist/") || url_path.starts_with("/web/"))
-        && [".js", ".css", ".woff2"].iter().any(|e| url_path.ends_with(e))
+        && [".js", ".css", ".woff2", ".svg", ".png"].iter().any(|e| url_path.ends_with(e))
         && url_path[..url_path.rfind('.').unwrap_or(0)].chars().skip(1).all(|c| c.is_ascii_alphanumeric() || "/_-".contains(c))
         && !url_path.contains("..");
     let Some(root) = cfg.root.as_ref().filter(|_| ok_path) else { return Some(req) };
     let target = root.join(&url_path[1..]);
     match fs::read(&target) {
         Ok(buf) => {
-            let kind = if url_path.ends_with(".css") {
+            let kind = if url_path.ends_with(".svg") {
+                "image/svg+xml"
+            } else if url_path.ends_with(".png") {
+                "image/png"
+            } else if url_path.ends_with(".css") {
                 "text/css; charset=utf-8"
             } else if url_path.ends_with(".woff2") {
                 "font/woff2"
@@ -309,7 +333,8 @@ fn index_page(root: &Option<PathBuf>) -> Vec<u8> {
         .replace("<div id=\"status\">Loading engine...</div>", "<div id=\"status\"></div>")
         .replace("import { initApp } from './app.js';", "import { initApp } from '/web/app.js';")
         .replace("import { createWasmEngine } from './engine-wasm.js';", "import { createHttpEngine } from '/web/engine-http.js';")
-        .replace("initApp(createWasmEngine);", "initApp(createHttpEngine);");
+        .replace("initApp(createWasmEngine);", "initApp(createHttpEngine);")
+        .replace("\"./images/", "\"/web/images/");
     if !page.contains("engine-http.js") || page.contains("createWasmEngine") {
         eprintln!("web/index.html changed shape; update the server transform");
         std::process::exit(1);

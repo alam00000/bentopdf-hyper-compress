@@ -241,7 +241,7 @@ impl Options {
         if o.speed != "balanced" {
             t.push(format!("70={}", if o.speed == "quality" { 1 } else { 2 }));
         }
-        if o.flatten_icc {
+        if o.flatten_icc && !o.lossless {
             t.push("8=1".into());
         }
         if !o.lossless && o.prefer_jpx {

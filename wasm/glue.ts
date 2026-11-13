@@ -132,7 +132,7 @@ export function decryptBuffer(
   password: string,
 ): Uint8Array | null {
   const inPtr = copyIn(mod, input);
-  const pwPtr = copyCString(mod, password);
+  const pwPtr = copyCString(mod, password.split('\n', 1)[0] ?? '');
   const sizePtr = mod._malloc(4);
   try {
     if (!inPtr || !sizePtr) return null;
@@ -258,7 +258,7 @@ export function runEngine(
 }
 
 export function resolveOptions(opts: HyperWasmOptions): HyperCompressOptions {
-  const base = opts.preset ? HYPER_PRESETS[opts.preset] : HYPER_PRESETS.medium;
+  const base = (opts.preset && HYPER_PRESETS[opts.preset]) || HYPER_PRESETS.medium;
   return normalizeHyperOptions({ ...base, ...(opts.options ?? {}) });
 }
 
@@ -268,6 +268,10 @@ export function compressBuffer(
   opts: HyperWasmOptions = {},
 ): HyperWasmResult {
   const originalSize = input.length;
+  const head = Array.from(input.subarray(0, 1024), (b) => String.fromCharCode(b)).join('');
+  if (!head.includes('%PDF-')) {
+    throw new HyperError('engine_error', 'the input is not a PDF: no %PDF- header in its first 1024 bytes');
+  }
   const password =
     typeof opts.password === 'string' && opts.password.length > 0 ? opts.password : null;
 
@@ -303,6 +307,9 @@ export function compressBuffer(
   const enginePassword = password && workIn !== input ? null : password;
   const { data: engineOut, signed, signaturesRemoved } =
     runEngine(mod, workIn, tokens, enginePassword);
+  if (!engineOut && !password && decryptBuffer(mod, input, '') === null) {
+    throw new HyperError('decrypt_failed', 'the PDF is encrypted and needs a password');
+  }
 
   const finish = (data: Uint8Array): HyperWasmResult => {
     let out = data;
@@ -314,20 +321,29 @@ export function compressBuffer(
       } else if (out !== fallbackBase && out !== input) {
         const xmp = getXmp(mod, out);
         const stripped = xmp ? setXmp(mod, out, stripPdfaFromXmp(xmp)) : null;
-        if (stripped) {
+        if (stripped && stripped.length < baselineSize) {
           out = stripped;
           outcome = 'claim-withdrawn';
+        } else if (xmp && stripPdfaFromXmp(xmp) === xmp) {
+          outcome = 'preserved';
+        } else {
+          out = fallbackBase;
+          outcome = 'preserved';
+          warnings.push(`the ${formatPdfaLevel(claimed)} claim could not be removed from the compressed file, so the original was kept; set preserveConformance to compress it as PDF/A`);
         }
       } else {
         outcome = 'preserved';
       }
     }
+    const usedEngine = out !== fallbackBase && out !== input && data !== fallbackBase && data !== input;
     out = raiseHeaderVersion(out, resolved.minVersion);
     const metTarget = target != null ? out.length <= target : null;
     if (metTarget === false && target != null) {
-      warnings.push(targetMissWarning(out.length, target));
+      warnings.push(preserving
+        ? `target of ${target} bytes not reached: ${out.length} bytes; no size search runs while preserving PDF/A, so turn off preserveConformance to let Hyper go further`
+        : targetMissWarning(out.length, target));
     }
-    const removed = signaturesRemoved && data !== fallbackBase;
+    const removed = signaturesRemoved && usedEngine;
     if (removed) {
       warnings.push('digital signatures removed so the document could be compressed');
     }
@@ -335,7 +351,7 @@ export function compressBuffer(
       data: out,
       originalSize,
       compressedSize: out.length,
-      signed,
+      signed: signed || (signaturesRemoved && !usedEngine),
       signaturesRemoved: removed,
       pdfa: claimed,
       pdfaOutcome: outcome,
@@ -345,15 +361,18 @@ export function compressBuffer(
   };
 
   if (engineOut && signed) {
+    if (target != null && input.length > target) {
+      warnings.push(`target of ${target} bytes not reached: signed documents are returned untouched; set removeSignatures to compress them`);
+    }
     return {
-      data: fallbackBase,
+      data: input,
       originalSize,
-      compressedSize: fallbackBase.length,
+      compressedSize: input.length,
       signed: true,
       signaturesRemoved: false,
       pdfa: claimed,
       pdfaOutcome: claimed ? 'preserved' : 'none',
-      metTarget: target != null ? fallbackBase.length <= target : null,
+      metTarget: target != null ? input.length <= target : null,
       warnings,
     };
   }
@@ -404,9 +423,9 @@ export function compressBuffer(
     packed = bestFit ?? smallest;
   }
 
-  const data =
+  const chosen =
     packed && packed.length > 0 && packed.length < baselineSize ? packed : fallbackBase;
-  return finish(data);
+  return finish(chosen !== input && chosen.length >= originalSize ? input : chosen);
 }
 
 export function describePdfaOutcome(r: HyperWasmResult): string {

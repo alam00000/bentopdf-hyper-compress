@@ -128,7 +128,7 @@ export interface CompressResult {
 }
 
 export function resolveOptions(input: CompressInput): HyperCompressOptions {
-  const base = input.preset ? HYPER_PRESETS[input.preset] : HYPER_PRESETS.medium;
+  const base = (input.preset && HYPER_PRESETS[input.preset]) || HYPER_PRESETS.medium;
   return normalizeHyperOptions({ ...base, ...(input.options ?? {}) });
 }
 

@@ -287,3 +287,9 @@ test('every option has a documented default that matches normalization', async (
     assert.doesNotMatch(doc.description, /\u2014/, `${key} description must not use an em dash`);
   }
 });
+
+test('lossless never flattens ICC profiles, even when asked', () => {
+  const tokens = buildHyperTokens(normalizeHyperOptions({ ...HYPER_PRESETS.medium, lossless: true, flattenIcc: true }));
+  assert.ok(!tokens.includes('8=1'), tokens.join(' '));
+  assert.ok(buildHyperTokens(normalizeHyperOptions({ ...HYPER_PRESETS.medium, flattenIcc: true })).includes('8=1'));
+});

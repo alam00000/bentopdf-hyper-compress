@@ -134,3 +134,25 @@ test('aborting mid-run stops the work and rejects as cancelled', opts, async () 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('a stage that runs past timeoutMs is a timeout error, not a silent fallback', opts, async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'hyper-stage-'));
+  try {
+    const src = path.join(dir, 'in.pdf');
+    writeFileSync(src, imagePdf(2400, 2400));
+    await assert.rejects(
+      () => compress({ sourcePath: src, savePath: path.join(dir, 'out.pdf'), timeoutMs: 20, options: { speed: 'quality' } }),
+      (err: unknown) => err instanceof HyperError && err.code === 'timeout' && /stage limit/.test(err.message),
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('verifyPassword on a missing file is an error, not false', opts, async () => {
+  const { verifyPassword } = await import('../sdk/node/index.js');
+  await assert.rejects(
+    () => verifyPassword(path.join(tmpdir(), 'hyper-no-such-file.pdf'), 'x'),
+    (err: unknown) => err instanceof HyperError && err.code === 'engine_error',
+  );
+});

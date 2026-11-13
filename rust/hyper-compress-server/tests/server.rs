@@ -114,6 +114,9 @@ fn healthz_index_static_and_not_found() {
     assert_eq!(index.status, 200);
     let page = String::from_utf8_lossy(&index.body);
     assert!(page.contains("createHttpEngine") && !page.contains("createWasmEngine"));
+    assert!(page.contains("\"/web/images/logo.svg\""));
+    let icon = request(&s, "GET", "/web/images/logo.svg", &[], b"");
+    assert_eq!((icon.status, icon.header("content-type")), (200, "image/svg+xml"));
     let js = request(&s, "GET", "/web/app.js", &[], b"");
     assert_eq!(js.status, 200);
     assert!(js.header("content-type").starts_with("text/javascript"));
@@ -159,7 +162,9 @@ fn compresses_with_headers() {
     assert_eq!(r.header("x-compressed-size"), r.body.len().to_string());
     assert!(r.body.len() < input.len());
     assert_eq!(r.header("x-signed"), "false");
+    assert_eq!(r.header("x-signatures-removed"), "false");
     assert_eq!(r.header("x-pdfa"), "");
+    assert_eq!(r.header("x-pdfa-preserved"), "false");
     assert_eq!(r.header("x-met-target"), "");
     assert_eq!(r.header("x-warnings"), "");
 }
@@ -189,6 +194,7 @@ fn signed_pdfa_and_target_headers() {
     assert_eq!(r.body, signed);
     let a = post(&s, "/api/compress?preservePdfa=true", &pdf::pdfa_pdf());
     assert_eq!(a.header("x-pdfa"), "2b");
+    assert_eq!(a.header("x-pdfa-preserved"), "true");
     let t = post(&s, "/api/compress?targetSizeBytes=100", &pdf::image_pdf());
     assert_eq!(t.header("x-met-target"), "false");
     let warnings = t.header("x-warnings").replace("%20", " ").replace("%3A", ":");
@@ -209,6 +215,24 @@ fn passwords_and_verify() {
     assert_eq!(right.status, 200);
     assert_eq!(request(&s, "POST", "/api/verify-password", &[("X-Password", "hunter2")], &locked).json()["valid"], true);
     assert_eq!(request(&s, "POST", "/api/verify-password", &[("X-Password", "nope")], &locked).json()["valid"], false);
+    let missing = post(&s, "/api/compress", &locked);
+    assert_eq!((missing.status, missing.json()["error"].as_str().unwrap()), (400, "decrypt_failed"));
+}
+
+#[test]
+fn non_ascii_passwords_work_through_the_encoded_header() {
+    need_engine!();
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("p.pdf"), pdf::image_pdf()).unwrap();
+    pdf::encrypt(&dir.path().join("p.pdf"), &dir.path().join("l.pdf"), "p\u{e4}ssw\u{f6}rt+1");
+    let locked = std::fs::read(dir.path().join("l.pdf")).unwrap();
+    let s = start(&[]);
+    let encoded = [("X-Password-Encoded", "p%C3%A4ssw%C3%B6rt%2B1")];
+    assert_eq!(request(&s, "POST", "/api/verify-password", &encoded, &locked).json()["valid"], true);
+    let r = request(&s, "POST", "/api/compress", &encoded, &locked);
+    assert_eq!(r.status, 200, "{}", String::from_utf8_lossy(&r.body));
+    let plus = [("X-Password-Encoded", "p%C3%A4ssw%C3%B6rt+1")];
+    assert_eq!(request(&s, "POST", "/api/verify-password", &plus, &locked).json()["valid"], true);
 }
 
 #[test]
@@ -251,6 +275,7 @@ fn full_queue_returns_429() {
     }
     let r = post(&s, "/api/compress", &pdf::text_pdf());
     assert_eq!((r.status, r.json()["error"].as_str().unwrap()), (429, "busy"));
+    assert_eq!(r.header("retry-after"), "1");
     drop(holder);
 }
 

@@ -30,7 +30,7 @@
 
 Hyper Compress is a high fidelity, content preserving PDF compression engine built to make PDFs smaller without unnecessarily changing the document.
 
-Hyper Compress is built by the [BentoPDF](https://github.com/alam00000/bentopdf) team. The same engine is available as a CLI, Node SDK, C library, self hosted service, and a WebAssembly build that runs entirely in the browser.
+Hyper Compress is built by the [BentoPDF](https://github.com/alam00000/bentopdf) team. The same engine is available as a CLI, a Node.js SDK and a Rust crate (both on one Rust core), a C library, a self-hosted HTTP service, and a WebAssembly build that runs entirely in the browser.
 
 Try it at [hyper.bentopdf.com](https://hyper.bentopdf.com). Full documentation lives at [hyper.bentopdf.com/docs](https://hyper.bentopdf.com/docs/).
 
@@ -72,7 +72,7 @@ For OEM terms, contact [contact@bentopdf.com](mailto:contact@bentopdf.com). See 
 * [Usage](#usage)
 
   * [CLI](#cli)
-  * [Node SDK](#node-sdk)
+  * [Node.js SDK](#nodejs-sdk)
   * [Self-hosted service](#self-hosted-service)
   * [Browser (WebAssembly)](#browser-webassembly)
   * [C API](#c-api)
@@ -101,7 +101,7 @@ Hyper Compress is built around solving these three problems.
 
 * **Built for reliability.** Hyper validates its output and verifies transformations that can affect visual fidelity. When a change cannot reproduce a page faithfully, it is rolled back. Across the benchmark, Hyper had a **0.39% corruption rate**, the lowest of any engine measured.
 
-* **One engine, everywhere.** The same compression engine powers the CLI, Node SDK, C API, self-hosted service, and WebAssembly build.
+* **One engine, everywhere.** The same compression engine powers the CLI, the Node.js SDK, the Rust crate, the C API, the self-hosted service and the WebAssembly build, on macOS, Linux (x64 and ARM64) and Windows.
 
 
 ---
@@ -374,7 +374,7 @@ hyper --help                                        # every flag, with examples
 
 `--target-size` searches for the highest image quality that fits under your target, pushing down to quality 5 and 36 dpi if it has to. If the target is reachable you get the best looking file that fits; if it is not, you get the smallest file the engine could produce along with a warning saying how small that was.
 
-### Node SDK
+### Node.js SDK
 
 ```js
 import { compress } from 'hyper-compress';

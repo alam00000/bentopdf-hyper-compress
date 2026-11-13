@@ -55,6 +55,7 @@ impl Limits {
 
 pub struct Output {
     pub ok: bool,
+    pub timed_out: bool,
     pub code: Option<i32>,
     pub stdout: Vec<u8>,
     pub stderr: String,
@@ -71,7 +72,7 @@ fn drain<R: Read + Send + 'static>(r: Option<R>) -> thread::JoinHandle<Vec<u8>> 
 }
 
 pub fn run(bin: &Path, args: &[String], stdin: Option<&[u8]>, capture_stdout: bool, limits: &Limits) -> Output {
-    let failed = Output { ok: false, code: None, stdout: Vec::new(), stderr: String::new() };
+    let failed = Output { ok: false, timed_out: false, code: None, stdout: Vec::new(), stderr: String::new() };
     let mut cmd = Command::new(bin);
     cmd.args(args)
         .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
@@ -86,6 +87,7 @@ pub fn run(bin: &Path, args: &[String], stdin: Option<&[u8]>, capture_stdout: bo
     let out = drain(child.stdout.take());
     let err = drain(child.stderr.take());
     let started = Instant::now();
+    let mut timed_out = false;
     let status = loop {
         match child.try_wait() {
             Ok(Some(s)) => break Some(s),
@@ -93,6 +95,7 @@ pub fn run(bin: &Path, args: &[String], stdin: Option<&[u8]>, capture_stdout: bo
             Err(_) => break None,
         }
         if started.elapsed() >= limits.stage || limits.aborted().is_some() {
+            timed_out = started.elapsed() >= limits.stage;
             let _ = child.kill();
             let _ = child.wait();
             break None;
@@ -102,7 +105,7 @@ pub fn run(bin: &Path, args: &[String], stdin: Option<&[u8]>, capture_stdout: bo
     let stdout = out.join().unwrap_or_default();
     let stderr = String::from_utf8_lossy(&err.join().unwrap_or_default()).into_owned();
     match status {
-        Some(s) => Output { ok: s.success(), code: s.code(), stdout, stderr },
-        None => Output { ok: false, code: None, stdout, stderr },
+        Some(s) => Output { ok: s.success(), timed_out: false, code: s.code(), stdout, stderr },
+        None => Output { ok: false, timed_out, code: None, stdout, stderr },
     }
 }

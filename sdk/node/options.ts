@@ -185,7 +185,7 @@ export function buildHyperTokens(o: HyperCompressOptions): string[] {
   }
   if (!o.lossless && o.jpegProgressive) tokens.push('55=1');
   if (o.speed !== 'balanced') tokens.push(`70=${SPEED_IDS[o.speed]}`);
-  if (o.flattenIcc) tokens.push('8=1');
+  if (o.flattenIcc && !o.lossless) tokens.push('8=1');
   if (!o.lossless && o.preferJpx) tokens.push('18=1');
   if (o.reduceColor) {
     tokens.push('7=1');
@@ -287,7 +287,7 @@ export const HYPER_OPTION_DOCS: Record<keyof HyperCompressOptions, HyperOptionDo
   },
   lossless: {
     group: 'Images', type: 'boolean', default: false,
-    description: 'Turns off quality, resolution, colour conversion and every other lossy image step. Images are only stored more efficiently, so every pixel stays the same.',
+    description: 'Turns off quality, resolution, colour conversion, ICC profile flattening and every other lossy image step. Images are only stored more efficiently, so every pixel stays the same. A size target that the lossless result misses switches the search to lossy encoding.',
   },
   grayscale: {
     group: 'Images', type: 'boolean', default: false,

@@ -167,3 +167,105 @@ fn pdfa_claim_is_kept_with_preserve_and_removed_without() {
     assert!(!dropped.contains("pdfaid:part"));
     assert!(dropped.contains("x:xmpmeta"));
 }
+
+#[test]
+fn encrypted_file_without_password_is_decrypt_failed() {
+    need_engine!();
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("plain.pdf"), pdf::image_pdf()).unwrap();
+    pdf::encrypt(&dir.path().join("plain.pdf"), &dir.path().join("lock.pdf"), "hunter2");
+    let o = hyper(dir.path(), &["lock.pdf", "o.pdf"]);
+    assert_eq!(o.status.code(), Some(1), "{}", text(&o.stdout));
+    assert!(text(&o.stderr).contains("needs a password"), "{}", text(&o.stderr));
+}
+
+#[test]
+fn signed_and_encrypted_file_comes_back_byte_for_byte() {
+    need_engine!();
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("s.pdf"), pdf::signed_pdf()).unwrap();
+    pdf::encrypt(&dir.path().join("s.pdf"), &dir.path().join("lock.pdf"), "hunter2");
+    let o = hyper(dir.path(), &["lock.pdf", "o.pdf", "--password", "hunter2"]);
+    assert!(o.status.success(), "{}", text(&o.stderr));
+    assert!(text(&o.stdout).contains("[signed: original preserved]"));
+    assert_eq!(fs::read(dir.path().join("lock.pdf")).unwrap(), fs::read(dir.path().join("o.pdf")).unwrap());
+}
+
+#[test]
+fn signed_file_with_unreachable_target_explains_why() {
+    need_engine!();
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("s.pdf"), pdf::signed_pdf()).unwrap();
+    let o = hyper(dir.path(), &["s.pdf", "o.pdf", "--target-size", "10"]);
+    assert!(o.status.success());
+    assert!(text(&o.stderr).contains("signed documents are returned untouched"), "{}", text(&o.stderr));
+}
+
+#[test]
+fn target_while_preserving_pdfa_says_no_search_ran() {
+    need_engine!();
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("a.pdf"), pdf::pdfa_pdf()).unwrap();
+    let o = hyper(dir.path(), &["a.pdf", "o.pdf", "--target-size", "10", "--set", "preserveConformance=true"]);
+    assert!(o.status.success());
+    assert!(text(&o.stderr).contains("no size search runs while preserving PDF/A"), "{}", text(&o.stderr));
+}
+
+#[test]
+fn a_password_on_an_unencrypted_file_never_makes_it_bigger() {
+    need_engine!();
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("t.pdf"), pdf::text_pdf()).unwrap();
+    let o = hyper(dir.path(), &["t.pdf", "o.pdf", "--password", "hunter2", "--preset", "lossless"]);
+    assert!(o.status.success(), "{}", text(&o.stderr));
+    let before = fs::metadata(dir.path().join("t.pdf")).unwrap().len();
+    let after = fs::metadata(dir.path().join("o.pdf")).unwrap().len();
+    assert!(after <= before, "{after} > {before}");
+}
+
+#[test]
+fn writing_over_the_input_never_loses_data() {
+    need_engine!();
+    let dir = tempfile::tempdir().unwrap();
+    let signed = pdf::signed_pdf();
+    fs::write(dir.path().join("s.pdf"), &signed).unwrap();
+    assert!(hyper(dir.path(), &["s.pdf", "s.pdf"]).status.success());
+    assert_eq!(fs::read(dir.path().join("s.pdf")).unwrap(), signed);
+    let image = pdf::image_pdf();
+    fs::write(dir.path().join("i.pdf"), &image).unwrap();
+    assert!(hyper(dir.path(), &["i.pdf", "i.pdf"]).status.success());
+    let first = fs::read(dir.path().join("i.pdf")).unwrap();
+    assert!(first.len() < image.len() && first.starts_with(b"%PDF"));
+    assert!(hyper(dir.path(), &["i.pdf", "i.pdf", "--preset", "lossless"]).status.success());
+    let second = fs::read(dir.path().join("i.pdf")).unwrap();
+    assert!(!second.is_empty() && second.len() <= first.len());
+    assert!(pdf::expanded(&dir.path().join("i.pdf")).contains("/Type /Page"));
+    let left: Vec<_> = fs::read_dir(dir.path()).unwrap().flatten().map(|e| e.file_name()).filter(|n| n.to_string_lossy().contains("hyper-tmp")).collect();
+    assert!(left.is_empty(), "{left:?}");
+}
+
+#[test]
+fn input_that_is_not_a_pdf_is_an_error() {
+    need_engine!();
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("x.pdf"), b"hello, I am a text file").unwrap();
+    let o = hyper(dir.path(), &["x.pdf", "o.pdf"]);
+    assert_eq!(o.status.code(), Some(1));
+    assert!(text(&o.stderr).contains("not a PDF"), "{}", text(&o.stderr));
+    assert!(!dir.path().join("o.pdf").exists());
+}
+
+#[test]
+fn a_wrong_engine_path_is_an_error() {
+    need_engine!();
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("t.pdf"), pdf::text_pdf()).unwrap();
+    let o = Command::new(env!("CARGO_BIN_EXE_hyper"))
+        .current_dir(dir.path())
+        .env("HYPER_DRV", dir.path().join("missing-worker"))
+        .args(["t.pdf", "o.pdf"])
+        .output()
+        .unwrap();
+    assert_eq!(o.status.code(), Some(1));
+    assert!(text(&o.stderr).contains("hpdf-worker not found"), "{}", text(&o.stderr));
+}

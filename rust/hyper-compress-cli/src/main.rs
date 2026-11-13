@@ -25,7 +25,7 @@ options:
   --report <file.json>  write a JSON report of fonts, images and cleanups
   --set <key=value>     override any engine option; repeatable
   -h, --help            show this help
-  -v, --version         show the version
+  -v, -V, --version     show the version
 
 Leave out the output path and the result is written next to the input as
 <input>-compressed.pdf.
@@ -84,6 +84,15 @@ fn parse_size(raw: &str) -> Option<u64> {
     Some((num.parse::<f64>().ok()? * mult).floor() as u64)
 }
 
+fn js_number(raw: &str) -> Option<f64> {
+    let t = raw.trim();
+    let radix = |p: &str, base: u32| t.strip_prefix(p).or_else(|| t.strip_prefix(&p.to_uppercase())).and_then(|d| u64::from_str_radix(d, base).ok()).map(|n| n as f64);
+    if t.is_empty() {
+        return None;
+    }
+    radix("0x", 16).or_else(|| radix("0o", 8)).or_else(|| radix("0b", 2)).or_else(|| t.parse::<f64>().ok()).filter(|n| n.is_finite())
+}
+
 fn parse(argv: &[String]) -> Result<Parsed, Usage> {
     let mut p = Parsed::default();
     let mut positional = Vec::new();
@@ -132,7 +141,7 @@ fn parse(argv: &[String]) -> Result<Parsed, Usage> {
                 let value = match raw {
                     "true" => Value::Bool(true),
                     "false" => Value::Bool(false),
-                    r => match r.trim().parse::<f64>().ok().filter(|n| n.is_finite() && !r.trim().is_empty()) {
+                    r => match js_number(r) {
                         Some(n) => serde_json::Number::from_f64(n).map(Value::Number).unwrap_or(Value::String(r.into())),
                         None => Value::String(r.into()),
                     },
@@ -256,6 +265,10 @@ mod tests {
         assert_eq!(p.overrides["colorTarget"], Value::String("cmyk".into()));
         assert_eq!(p.overrides["minVersion"].as_f64(), Some(1.7));
         assert_eq!(p.overrides["flattenForms"], Value::Bool(false));
+        let hex = ok("a.pdf --set contentPrecision=0x5 --set imageQuality=1e1 --set colorTarget=0xZZ");
+        assert_eq!(hex.overrides["contentPrecision"].as_f64(), Some(5.0));
+        assert_eq!(hex.overrides["imageQuality"].as_f64(), Some(10.0));
+        assert_eq!(hex.overrides["colorTarget"], Value::String("0xZZ".into()));
     }
 
     #[test]

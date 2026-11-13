@@ -38,7 +38,7 @@ options:
   --report <file.json>  write a JSON report of fonts, images and cleanups
   --set <key=value>     override any engine option; repeatable
   -h, --help            show this help
-  -v, --version         show the version
+  -v, -V, --version     show the version
 
 Leave out the output path and the result is written next to the input as
 <input>-compressed.pdf.

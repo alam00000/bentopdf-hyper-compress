@@ -22,12 +22,12 @@ versions that are not on npm yet (they only get published after the tag), and
 CI does the rest, in order:
 
 1. `release.yml` builds, on real runners from the pinned PDFium checkout:
-   - `hyper-compress-<tag>-macos-arm64.tar.gz`: hpdf-worker, hpdf-render, qpdf
-     (stripped and signed by `scripts/harden.sh`)
-   - `hyper-compress-<tag>-linux-x64.tar.gz` and `-linux-arm64.tar.gz`: same
-     three binaries, each built on a native runner for its CPU
+   - `hyper-compress-<tag>-macos-arm64.tar.gz`: hpdf-worker, hpdf-render, qpdf and
+     the Rust addon hyper-compress.node (stripped and signed by `scripts/harden.sh`)
+   - `hyper-compress-<tag>-linux-x64.tar.gz` and `-linux-arm64.tar.gz`: the same
+     four files, each built on a native runner for its CPU
    - `hyper-compress-<tag>-windows-x64.tar.gz`: hpdf-worker.exe,
-     hpdf-render.exe, and qpdf.exe with its runtime DLLs (fetched
+     hpdf-render.exe, hyper-compress.node, and qpdf.exe with its runtime DLLs (fetched
      checksum-pinned from the official qpdf release)
    - `hyper-compress-<tag>-wasm.tar.gz`: the WebAssembly engine module
    - `libhypercompress-<tag>-macos-arm64.tar.gz`: the C API dylib

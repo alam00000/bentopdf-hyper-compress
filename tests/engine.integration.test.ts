@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { compress, type CompressInput } from '../sdk/node/engine.js';
+import { compress, resolveOptions, type CompressInput } from '../sdk/node/engine.js';
 import {
   hasEngine,
   textPdf,
@@ -217,4 +217,9 @@ test('many compressions in parallel all succeed independently', opts, async () =
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('an unknown preset falls back to medium everywhere', () => {
+  const bogus = resolveOptions({ sourcePath: 'x.pdf', preset: 'bogus' as never });
+  assert.deepEqual(bogus, resolveOptions({ sourcePath: 'x.pdf', preset: 'medium' }));
 });

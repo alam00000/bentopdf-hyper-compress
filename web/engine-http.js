@@ -5,7 +5,7 @@ export function createHttpEngine() {
     isReady: () => true,
     async verifyPassword(file) {
       const headers = {};
-      if (file.password) headers['X-Password'] = file.password;
+      if (file.password) headers['X-Password-Encoded'] = encodeURIComponent(file.password);
       try {
         const res = await fetch('/api/verify-password', { method: 'POST', headers, body: file.bytes });
         if (!res.ok) return false;
@@ -23,7 +23,7 @@ export function createHttpEngine() {
         });
         if (targetSizeBytes) params.set('targetSizeBytes', String(targetSizeBytes));
         const headers = {};
-        if (file.encrypted && file.password) headers['X-Password'] = file.password;
+        if (file.encrypted && file.password) headers['X-Password-Encoded'] = encodeURIComponent(file.password);
         const started = performance.now();
         const res = await fetch(`/api/compress?${params}`, {
           method: 'POST', headers, body: file.bytes,

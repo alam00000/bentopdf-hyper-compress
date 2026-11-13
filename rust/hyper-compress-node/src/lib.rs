@@ -61,60 +61,37 @@ fn to_input(v: &Value, cancel: CancelToken) -> CompressInput {
     }
 }
 
-pub struct CompressTask {
-    input: Value,
-    cancel: CancelToken,
-}
-
-impl Task for CompressTask {
-    type Output = String;
-    type JsValue = String;
-
-    fn compute(&mut self) -> Result<String> {
-        Ok(match compress(&to_input(&self.input, self.cancel.clone())) {
-            Ok(r) => json!({ "result": r }),
-            Err(e) => failure(e),
-        }
-        .to_string())
-    }
-
-    fn resolve(&mut self, _env: Env, output: String) -> Result<String> {
-        Ok(output)
-    }
+fn spawn_json<'env, F>(env: &'env Env, work: F) -> Result<Object<'env>>
+where
+    F: FnOnce() -> Value + Send + 'static,
+{
+    let (deferred, promise) = env.create_deferred()?;
+    std::thread::spawn(move || {
+        let out = work().to_string();
+        deferred.resolve(move |_env| Ok(out));
+    });
+    Ok(promise)
 }
 
 #[napi(ts_return_type = "Promise<string>")]
-pub fn compress_native(input: Value, cancel: Option<&CancelHandle>) -> AsyncTask<CompressTask> {
-    AsyncTask::new(CompressTask { input, cancel: cancel.map(|c| c.0.clone()).unwrap_or_default() })
+pub fn compress_native<'env>(env: &'env Env, input: Value, cancel: Option<&CancelHandle>) -> Result<Object<'env>> {
+    let cancel = cancel.map(|c| c.0.clone()).unwrap_or_default();
+    spawn_json(env, move || match compress(&to_input(&input, cancel)) {
+        Ok(r) => json!({ "result": r }),
+        Err(e) => failure(e),
+    })
 }
 
-pub struct VerifyTask {
-    input: Value,
-}
-
-impl Task for VerifyTask {
-    type Output = String;
-    type JsValue = String;
-
-    fn compute(&mut self) -> Result<String> {
-        let v = &self.input;
-        let source = path(v.get("sourcePath")).unwrap_or_default();
-        let password = v.get("password").and_then(Value::as_str).unwrap_or("");
-        Ok(match verify_password(&source, password, millis(v.get("timeoutMs")), &binaries(v)) {
+#[napi(ts_return_type = "Promise<string>")]
+pub fn verify_password_native<'env>(env: &'env Env, input: Value) -> Result<Object<'env>> {
+    spawn_json(env, move || {
+        let source = path(input.get("sourcePath")).unwrap_or_default();
+        let password = input.get("password").and_then(Value::as_str).unwrap_or("");
+        match verify_password(&source, password, millis(input.get("timeoutMs")), &binaries(&input)) {
             Ok(valid) => json!({ "result": valid }),
             Err(e) => failure(e),
         }
-        .to_string())
-    }
-
-    fn resolve(&mut self, _env: Env, output: String) -> Result<String> {
-        Ok(output)
-    }
-}
-
-#[napi(ts_return_type = "Promise<string>")]
-pub fn verify_password_native(input: Value) -> AsyncTask<VerifyTask> {
-    AsyncTask::new(VerifyTask { input })
+    })
 }
 
 #[napi]

@@ -15,5 +15,8 @@
   ],
   "files": [
     "bin"
+  ],
+  "libc": [
+    "glibc"
   ]
 }
