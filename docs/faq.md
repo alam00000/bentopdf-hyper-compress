@@ -51,6 +51,10 @@ hyper input.pdf output.pdf --brotli --set minVersion=2.0
 
 Brotli streams need a reader that supports them. See [Options](/options).
 
+### Is Hyper thread safe?
+
+Yes. The CLI, Node.js SDK, Rust crate and HTTP service run each compression in its own engine process, so any number can run at once, one per CPU core for full speed. The C API is safe from any thread, with calls taking turns. A WebAssembly instance runs one compression at a time, so use one worker per parallel job. See [Safe to call from many threads at once](/guarantees#safe-to-call-from-many-threads-at-once).
+
 ## Privacy and licensing
 
 ### Does Hyper upload my files?

@@ -1,4 +1,5 @@
 #include <limits.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,7 +10,8 @@
 #include "hpdf.h"
 
 static int g_inited = 0;
-static char g_last_error[256];
+static pthread_mutex_t g_engine = PTHREAD_MUTEX_INITIALIZER;
+static _Thread_local char g_last_error[256];
 
 static void set_error(const char* msg) {
   snprintf(g_last_error, sizeof(g_last_error), "%s", msg ? msg : "");
@@ -82,10 +84,9 @@ static int is_signed(FPDF_DOCUMENT doc, int rc) {
          (HyperCompress_DocIsSigned(doc) != 0);
 }
 
-int hpdf_compress_file(const char* in_path, const char* out_path,
-                       const int* ids, const int* vals, int n,
-                       const char* password) {
-  set_error("");
+static int compress_file(const char* in_path, const char* out_path,
+                         const int* ids, const int* vals, int n,
+                         const char* password) {
   ensure_init();
   FPDF_DOCUMENT doc =
       FPDF_LoadDocument(in_path, (password && *password) ? password : NULL);
@@ -124,19 +125,12 @@ int hpdf_compress_file(const char* in_path, const char* out_path,
   return signed_doc ? 2 : 0;
 }
 
-unsigned char* hpdf_compress_buffer(const unsigned char* in_data,
-                                    unsigned long in_size,
-                                    const int* ids, const int* vals, int n,
-                                    const char* password,
-                                    unsigned long* out_size,
-                                    int* out_status) {
-  set_error("");
-  if (out_size) *out_size = 0;
-  if (out_status) *out_status = 1;
-  if (in_size > (unsigned long)INT_MAX) {
-    set_error("input larger than 2 GB is not supported");
-    return NULL;
-  }
+static unsigned char* compress_buffer(const unsigned char* in_data,
+                                      unsigned long in_size,
+                                      const int* ids, const int* vals, int n,
+                                      const char* password,
+                                      unsigned long* out_size,
+                                      int* out_status) {
   ensure_init();
   FPDF_DOCUMENT doc = FPDF_LoadMemDocument(
       in_data, (int)in_size, (password && *password) ? password : NULL);
@@ -169,6 +163,36 @@ unsigned char* hpdf_compress_buffer(const unsigned char* in_data,
   if (out_size) *out_size = (unsigned long)w.size;
   if (out_status) *out_status = signed_doc ? 2 : 0;
   return w.data;
+}
+
+int hpdf_compress_file(const char* in_path, const char* out_path,
+                       const int* ids, const int* vals, int n,
+                       const char* password) {
+  set_error("");
+  pthread_mutex_lock(&g_engine);
+  int rc = compress_file(in_path, out_path, ids, vals, n, password);
+  pthread_mutex_unlock(&g_engine);
+  return rc;
+}
+
+unsigned char* hpdf_compress_buffer(const unsigned char* in_data,
+                                    unsigned long in_size,
+                                    const int* ids, const int* vals, int n,
+                                    const char* password,
+                                    unsigned long* out_size,
+                                    int* out_status) {
+  set_error("");
+  if (out_size) *out_size = 0;
+  if (out_status) *out_status = 1;
+  if (in_size > (unsigned long)INT_MAX) {
+    set_error("input larger than 2 GB is not supported");
+    return NULL;
+  }
+  pthread_mutex_lock(&g_engine);
+  unsigned char* out = compress_buffer(in_data, in_size, ids, vals, n, password,
+                                       out_size, out_status);
+  pthread_mutex_unlock(&g_engine);
+  return out;
 }
 
 void hpdf_free(unsigned char* buffer) {

@@ -194,7 +194,7 @@ document.querySelector('input[type=file]').addEventListener('change', async (e) 
 
 ## Worker threads in Node.js
 
-Compression runs synchronously once the module is loaded, so a large file blocks the event loop for as long as it takes. In a server, run it in a worker thread:
+Compression runs synchronously once the module is loaded, so a large file blocks the event loop for as long as it takes, and one instance runs one compression at a time. In a server, run it in a worker thread, and start one worker per compression you want to run in parallel; each loads its own instance:
 
 ```js
 // worker.mjs

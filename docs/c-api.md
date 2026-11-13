@@ -51,7 +51,7 @@ const char* hpdf_version(void);
 
 `hpdf.h` also defines `HPDF_VERSION`, the version as a string, for example `"1.1.4"`.
 
-The library keeps one global error message and starts the engine once on first use. Call it from one thread at a time.
+The library is safe to call from any number of threads. It starts the engine once on first use, and runs one compression at a time: calls made at the same moment from other threads wait their turn, so extra threads add safety but not speed. For several compressions at once, run several processes, or use the CLI, Node.js SDK or HTTP service, which run each job in its own engine process. `hpdf_last_error` returns the message of the calling thread's last call.
 
 ### hpdf_compress_file
 
@@ -98,7 +98,7 @@ Releases a buffer returned by `hpdf_compress_buffer`. Passing `NULL` is safe.
 
 ### hpdf_last_error
 
-Returns the message of the most recent failure, or `""` after a compress call that succeeded. The string belongs to the library and changes on the next call.
+Returns the message of the calling thread's most recent failure, or `""` after a compress call that succeeded. Each thread has its own message. The string belongs to the library and changes on that thread's next call.
 
 | Message | Cause |
 |---|---|

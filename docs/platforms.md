@@ -82,6 +82,8 @@ All surfaces share the same presets, the same [options](/options), the same size
 
 Inside one compression, the native engine uses as many threads as the machine has cores, up to 8, for image work. The C library can set this with option id 68. The WebAssembly build uses one thread.
 
+Every surface is safe to call from many threads at once. The CLI, Node.js SDK, Rust crate and HTTP service run each compression in its own engine process; the C API lets calls take turns; a WebAssembly instance runs one compression at a time. See [Safe to call from many threads at once](/guarantees#safe-to-call-from-many-threads-at-once).
+
 The native engine reads and writes files on disk, so its memory use depends on the document's content, mostly its largest images, more than on the file size. The C library's `hpdf_compress_buffer` refuses inputs over 2 GB.
 
 The WebAssembly build holds the input, its working memory and the output in a memory space of at most 4 GB. For files in the hundreds of megabytes, use a native surface.

@@ -16,6 +16,7 @@ Compression tools often fail in quiet ways: files get bigger, signatures break, 
 | [Best effort on size targets](#a-size-target-gets-hyper-s-best-effort) | yes | yes | yes | yes | no target search |
 | [Nothing fails silently](#nothing-fails-silently) | yes | yes | yes | yes | return codes only |
 | [Hostile input is contained](#hostile-input-is-contained) | yes | yes | no, runs in process | yes | no, runs in process |
+| [Safe from many threads](#safe-to-call-from-many-threads-at-once) | yes | yes | one call at a time per instance | yes | yes, calls take turns |
 
 ## The output is never larger than the input
 
@@ -64,3 +65,11 @@ Broken or deliberately malicious PDFs can crash or hang software. The native sur
 The engine is also fuzzed continuously with ClusterFuzzLite, on every pull request that touches it and again nightly, and every crash found becomes a permanent regression test.
 
 The WebAssembly build and the C API run inside your process. For untrusted input there, use a worker thread (WebAssembly) or run the `hpdf-worker` program (C). See [Running in production](/guides/production).
+
+## Safe to call from many threads at once
+
+Hyper is thread safe. The CLI, the Node.js SDK, the Rust crate and the HTTP service run every compression in its own engine process, with its own memory and temporary folder, so any number of calls can run at the same time without affecting each other, and each one can use its own CPU core.
+
+The C API runs the engine inside your process. It is safe to call from any thread: calls made at the same moment take turns, and each thread gets its own `hpdf_last_error` message. For several compressions at once from C, run several processes.
+
+A WebAssembly instance runs one compression at a time. For parallel work, start one worker per compression; each loads its own instance.

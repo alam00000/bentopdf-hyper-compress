@@ -40,6 +40,9 @@ jobs:
           cli/prebuilt/hpdf-worker tests/regression/failset/govdocs001-0142b23c0caa.pdf /tmp/out.pdf 1=150 2=50
           head -c 4 /tmp/out.pdf | grep -q '%PDF'
           echo "worker compressed a real PDF: $(stat -f%z tests/regression/failset/govdocs001-0142b23c0caa.pdf) -> $(stat -f%z /tmp/out.pdf) bytes"
+          clang -std=c11 -O2 -I sdk/native/include sdk/native/thread_test.c -o /tmp/thread_test \
+            -Wl,-rpath,"$PWD/sdk/native/lib" sdk/native/lib/libhypercompress.dylib
+          /tmp/thread_test tests/regression/failset/govdocs001-0142b23c0caa.pdf
       - uses: actions/setup-node@v7
         with:
           node-version: 22

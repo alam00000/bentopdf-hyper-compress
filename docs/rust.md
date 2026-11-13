@@ -116,6 +116,8 @@ The output file is written at the end. When `compress` returns an error, no outp
 
 `save_path` can be the same as `source_path`. The result is written to a temporary file beside the output and renamed into place, and when Hyper keeps the original, the file is left as it is.
 
+`compress` and `verify_password` are safe to call from many threads at once. Each call runs the engine in its own process with its own temporary folder, so parallel calls share nothing.
+
 ### CompressInput
 
 ```rust
