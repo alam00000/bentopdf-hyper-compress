@@ -1,6 +1,6 @@
 {
   "name": "hyper-compress-linux-arm64",
-  "version": "1.1.4",
+  "version": "1.2.0",
   "description": "Prebuilt Hyper Compress engine binaries for linux arm64",
   "license": "AGPL-3.0-only",
   "repository": {
