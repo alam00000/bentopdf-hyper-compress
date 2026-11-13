@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 278" width="800" height="278" role="img" aria-label="Cost per 1,000 PDFs (US$, lower is better)">
+<style>
+svg{--surface:#fcfcfb;--text:#0b0b0b;--muted:#52514e;--grid:#e6e5e0;--arm:#2a78d6;--intel:#eb6834;
+font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}
+@media (prefers-color-scheme:dark){svg{--surface:#1a1a19;--text:#f0efec;--muted:#c3c2b7;--grid:#383835;
+--arm:#3987e5;--intel:#d95926}}
+.bg{fill:var(--surface)}.t{fill:var(--text)}.m{fill:var(--muted)}.g{stroke:var(--grid);stroke-width:1}
+.arm{fill:var(--arm)}.intel{fill:var(--intel)}
+</style>
+<rect class="bg" width="800" height="278" rx="8"/>
+<text class="t" x="20" y="32" font-size="18" font-weight="600">Cost per 1,000 PDFs (US$, lower is better)</text>
+<text class="m" x="20" y="54" font-size="13">At Google Cloud on-demand list prices, November 2026</text>
+<rect class="arm" x="210" y="66" width="12" height="12" rx="2"/><text class="m" x="228" y="76" font-size="13">Arm</text><rect class="intel" x="280" y="66" width="12" height="12" rx="2"/><text class="m" x="298" y="76" font-size="13">Intel</text>
+<line class="g" x1="210.0" x2="210.0" y1="86" y2="244"/><text class="m" x="210.0" y="262" font-size="12" text-anchor="middle">$0</text>
+<line class="g" x1="284.28615231997117" x2="284.28615231997117" y1="86" y2="244"/><text class="m" x="284.28615231997117" y="262" font-size="12" text-anchor="middle">$0.01</text>
+<line class="g" x1="358.57230463994233" x2="358.57230463994233" y1="86" y2="244"/><text class="m" x="358.57230463994233" y="262" font-size="12" text-anchor="middle">$0.02</text>
+<line class="g" x1="432.85845695991344" x2="432.85845695991344" y1="86" y2="244"/><text class="m" x="432.85845695991344" y="262" font-size="12" text-anchor="middle">$0.03</text>
+<line class="g" x1="507.1446092798846" x2="507.1446092798846" y1="86" y2="244"/><text class="m" x="507.1446092798846" y="262" font-size="12" text-anchor="middle">$0.04</text>
+<line class="g" x1="581.4307615998557" x2="581.4307615998557" y1="86" y2="244"/><text class="m" x="581.4307615998557" y="262" font-size="12" text-anchor="middle">$0.05</text>
+<line class="g" x1="655.7169139198269" x2="655.7169139198269" y1="86" y2="244"/><text class="m" x="655.7169139198269" y="262" font-size="12" text-anchor="middle">$0.06</text>
+<line class="g" x1="730.0030662397982" x2="730.0030662397982" y1="86" y2="244"/><text class="m" x="730.0030662397982" y="262" font-size="12" text-anchor="middle">$0.07</text>
+<line class="g" x1="210" x2="210" y1="86" y2="244"/>
+<text class="t" x="198" y="107.0" font-size="13" text-anchor="end">8-CPU Arm server</text>
+<path class="arm" d="M210,92h224.18185320107438a4,4 0 0 1 4,4v12a4,4 0 0 1 -4,4h-224.18185320107438z"><title>c4a-standard-8: US$0.359 per hour</title></path>
+<text class="t" x="446.1818532010744" y="107.0" font-size="13" font-weight="600">$0.031</text>
+<text class="t" x="198" y="145.0" font-size="13" text-anchor="end">8-CPU Intel server</text>
+<path class="intel" d="M210,130h372.75693855864614a4,4 0 0 1 4,4v12a4,4 0 0 1 -4,4h-372.75693855864614z"><title>c3-standard-8: US$0.403 per hour</title></path>
+<text class="t" x="594.7569385586462" y="145.0" font-size="13" font-weight="600">$0.051</text>
+<text class="t" x="198" y="183.0" font-size="13" text-anchor="end">32-CPU Arm server</text>
+<path class="arm" d="M210,168h285.3470604351945a4,4 0 0 1 4,4v12a4,4 0 0 1 -4,4h-285.3470604351945z"><title>c4a-standard-32: US$1.437 per hour</title></path>
+<text class="t" x="507.3470604351945" y="183.0" font-size="13" font-weight="600">$0.039</text>
+<text class="t" x="198" y="221.0" font-size="13" text-anchor="end">44-CPU Intel server</text>
+<path class="intel" d="M210,206h466.0a4,4 0 0 1 4,4v12a4,4 0 0 1 -4,4h-466.0z"><title>c3-standard-44: US$2.218 per hour</title></path>
+<text class="t" x="688.0" y="221.0" font-size="13" font-weight="600">$0.063</text>
+</svg>

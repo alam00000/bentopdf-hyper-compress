@@ -1,0 +1,147 @@
+{
+  "concurrency": 2,
+  "preset": "medium",
+  "duration_seconds": 600.0,
+  "warmup_seconds": 60.0,
+  "corpus_files": 5003,
+  "vcpus": 44,
+  "overall": {
+    "documents": 655,
+    "documents_per_hour": 3930,
+    "pages_per_hour": 70230,
+    "input_gb_per_hour": 19.27,
+    "p50_seconds": 0.1386,
+    "p95_seconds": 3.116199999999988,
+    "p99_seconds": 7.6245300000000436,
+    "saved_percent": 70.8
+  },
+  "errors": {},
+  "invalid_outputs": 0,
+  "cpu_busy_avg": 0.096,
+  "engine_rss_peak_bytes": 2351337472,
+  "largest_job_rss_bytes": 1821220864,
+  "by_group": {
+    "forms": {
+      "documents": 42,
+      "documents_per_hour": 252,
+      "pages_per_hour": 1722,
+      "input_gb_per_hour": 0.4,
+      "p50_seconds": 0.12605,
+      "p95_seconds": 0.7601900000000001,
+      "p99_seconds": 1.4041680000000014,
+      "saved_percent": 61.7
+    },
+    "general": {
+      "documents": 384,
+      "documents_per_hour": 2304,
+      "pages_per_hour": 33972,
+      "input_gb_per_hour": 3.04,
+      "p50_seconds": 0.11910000000000001,
+      "p95_seconds": 1.3552900000000008,
+      "p99_seconds": 3.7346710000000005,
+      "saved_percent": 62.1
+    },
+    "large": {
+      "documents": 81,
+      "documents_per_hour": 486,
+      "pages_per_hour": 24438,
+      "input_gb_per_hour": 14.71,
+      "p50_seconds": 1.7458,
+      "p95_seconds": 8.6953,
+      "p99_seconds": 396.85546000000005,
+      "saved_percent": 73.8
+    },
+    "pdfa": {
+      "documents": 44,
+      "documents_per_hour": 264,
+      "pages_per_hour": 2856,
+      "input_gb_per_hour": 0.47,
+      "p50_seconds": 0.09195,
+      "p95_seconds": 0.6675150000000001,
+      "p99_seconds": 2.520483000000001,
+      "saved_percent": 66.4
+    },
+    "scans": {
+      "documents": 25,
+      "documents_per_hour": 150,
+      "pages_per_hour": 1326,
+      "input_gb_per_hour": 0.26,
+      "p50_seconds": 0.6424,
+      "p95_seconds": 2.905120000000001,
+      "p99_seconds": 5.029904000000004,
+      "saved_percent": 55.0
+    },
+    "signed": {
+      "documents": 36,
+      "documents_per_hour": 216,
+      "pages_per_hour": 1032,
+      "input_gb_per_hour": 0.12,
+      "p50_seconds": 0.00695,
+      "p95_seconds": 0.0121,
+      "p99_seconds": 0.02092999999999999,
+      "saved_percent": 0.0
+    },
+    "text-heavy": {
+      "documents": 43,
+      "documents_per_hour": 258,
+      "pages_per_hour": 4884,
+      "input_gb_per_hour": 0.28,
+      "p50_seconds": 0.1042,
+      "p95_seconds": 2.6943999999999977,
+      "p99_seconds": 3.0292719999999997,
+      "saved_percent": 69.0
+    }
+  },
+  "by_band": {
+    "0.5-2MB": {
+      "documents": 165,
+      "documents_per_hour": 990,
+      "pages_per_hour": 15774,
+      "input_gb_per_hour": 1.0,
+      "p50_seconds": 0.1968,
+      "p95_seconds": 0.9384000000000005,
+      "p99_seconds": 1.4909240000000075,
+      "saved_percent": 54.8
+    },
+    "100-500KB": {
+      "documents": 191,
+      "documents_per_hour": 1146,
+      "pages_per_hour": 9588,
+      "input_gb_per_hour": 0.31,
+      "p50_seconds": 0.0581,
+      "p95_seconds": 0.223,
+      "p99_seconds": 0.33295999999999987,
+      "saved_percent": 38.5
+    },
+    "2-10MB": {
+      "documents": 111,
+      "documents_per_hour": 666,
+      "pages_per_hour": 16758,
+      "input_gb_per_hour": 2.95,
+      "p50_seconds": 0.6614,
+      "p95_seconds": 3.60085,
+      "p99_seconds": 4.44279,
+      "saved_percent": 63.0
+    },
+    "<100KB": {
+      "documents": 104,
+      "documents_per_hour": 624,
+      "pages_per_hour": 3324,
+      "input_gb_per_hour": 0.03,
+      "p50_seconds": 0.0214,
+      "p95_seconds": 0.057039999999999993,
+      "p99_seconds": 0.067097,
+      "saved_percent": 36.0
+    },
+    ">10MB": {
+      "documents": 84,
+      "documents_per_hour": 504,
+      "pages_per_hour": 24786,
+      "input_gb_per_hour": 14.98,
+      "p50_seconds": 1.7420499999999999,
+      "p95_seconds": 8.630304999999996,
+      "p99_seconds": 396.71551600000004,
+      "saved_percent": 74.1
+    }
+  }
+}

@@ -1,0 +1,1 @@
+{"machine_type": "c4a-standard-8", "vcpus": 8, "image": "ghcr.io/alam00000/bentopdf-hyper-compress:v1.2.0", "cpu": "Neoverse-V2", "arch": "aarch64", "memory_bytes": 33607204864, "kernel": "6.1.0-54-cloud-arm64"}

@@ -1,0 +1,147 @@
+{
+  "concurrency": 4,
+  "preset": "medium",
+  "duration_seconds": 600.0,
+  "warmup_seconds": 60.0,
+  "corpus_files": 5003,
+  "vcpus": 8,
+  "overall": {
+    "documents": 1554,
+    "documents_per_hour": 9324,
+    "pages_per_hour": 168192,
+    "input_gb_per_hour": 38.29,
+    "p50_seconds": 0.16325,
+    "p95_seconds": 2.905304999999998,
+    "p99_seconds": 8.332546000000006,
+    "saved_percent": 71.0
+  },
+  "errors": {},
+  "invalid_outputs": 0,
+  "cpu_busy_avg": 0.835,
+  "engine_rss_peak_bytes": 6363963392,
+  "largest_job_rss_bytes": 5330694144,
+  "by_group": {
+    "forms": {
+      "documents": 90,
+      "documents_per_hour": 540,
+      "pages_per_hour": 4506,
+      "input_gb_per_hour": 1.19,
+      "p50_seconds": 0.1886,
+      "p95_seconds": 1.314875,
+      "p99_seconds": 3.4747459999999997,
+      "saved_percent": 59.2
+    },
+    "general": {
+      "documents": 939,
+      "documents_per_hour": 5634,
+      "pages_per_hour": 94662,
+      "input_gb_per_hour": 7.53,
+      "p50_seconds": 0.142,
+      "p95_seconds": 1.47808,
+      "p99_seconds": 3.2899800000000003,
+      "saved_percent": 61.8
+    },
+    "large": {
+      "documents": 170,
+      "documents_per_hour": 1020,
+      "pages_per_hour": 41502,
+      "input_gb_per_hour": 26.67,
+      "p50_seconds": 1.80165,
+      "p95_seconds": 12.068060000000006,
+      "p99_seconds": 188.14027200000052,
+      "saved_percent": 75.6
+    },
+    "pdfa": {
+      "documents": 89,
+      "documents_per_hour": 534,
+      "pages_per_hour": 6264,
+      "input_gb_per_hour": 0.79,
+      "p50_seconds": 0.1059,
+      "p95_seconds": 0.8784199999999984,
+      "p99_seconds": 2.0688160000000213,
+      "saved_percent": 62.3
+    },
+    "scans": {
+      "documents": 72,
+      "documents_per_hour": 432,
+      "pages_per_hour": 6306,
+      "input_gb_per_hour": 1.14,
+      "p50_seconds": 0.4857,
+      "p95_seconds": 4.636590000000009,
+      "p99_seconds": 9.376448000000012,
+      "saved_percent": 63.7
+    },
+    "signed": {
+      "documents": 94,
+      "documents_per_hour": 564,
+      "pages_per_hour": 2736,
+      "input_gb_per_hour": 0.29,
+      "p50_seconds": 0.008799999999999999,
+      "p95_seconds": 0.03575499999999999,
+      "p99_seconds": 0.05168499999999996,
+      "saved_percent": 0.0
+    },
+    "text-heavy": {
+      "documents": 100,
+      "documents_per_hour": 600,
+      "pages_per_hour": 12216,
+      "input_gb_per_hour": 0.68,
+      "p50_seconds": 0.132,
+      "p95_seconds": 1.0732599999999999,
+      "p99_seconds": 2.380331,
+      "saved_percent": 65.0
+    }
+  },
+  "by_band": {
+    "0.5-2MB": {
+      "documents": 390,
+      "documents_per_hour": 2340,
+      "pages_per_hour": 47544,
+      "input_gb_per_hour": 2.46,
+      "p50_seconds": 0.2445,
+      "p95_seconds": 0.8556100000000001,
+      "p99_seconds": 1.4848810000000006,
+      "saved_percent": 54.2
+    },
+    "100-500KB": {
+      "documents": 431,
+      "documents_per_hour": 2586,
+      "pages_per_hour": 23106,
+      "input_gb_per_hour": 0.68,
+      "p50_seconds": 0.0678,
+      "p95_seconds": 0.23645,
+      "p99_seconds": 0.5166699999999989,
+      "saved_percent": 38.7
+    },
+    "2-10MB": {
+      "documents": 300,
+      "documents_per_hour": 1800,
+      "pages_per_hour": 47958,
+      "input_gb_per_hour": 7.59,
+      "p50_seconds": 0.75865,
+      "p95_seconds": 3.230700000000001,
+      "p99_seconds": 4.838098999999987,
+      "saved_percent": 63.4
+    },
+    "<100KB": {
+      "documents": 255,
+      "documents_per_hour": 1530,
+      "pages_per_hour": 5976,
+      "input_gb_per_hour": 0.08,
+      "p50_seconds": 0.0323,
+      "p95_seconds": 0.11148000000000007,
+      "p99_seconds": 0.18155200000000005,
+      "saved_percent": 35.7
+    },
+    ">10MB": {
+      "documents": 178,
+      "documents_per_hour": 1068,
+      "pages_per_hour": 43608,
+      "input_gb_per_hour": 27.48,
+      "p50_seconds": 1.7194,
+      "p95_seconds": 11.805180000000004,
+      "p99_seconds": 169.74577599999765,
+      "saved_percent": 75.5
+    }
+  }
+}

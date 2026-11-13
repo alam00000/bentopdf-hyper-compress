@@ -1,0 +1,147 @@
+{
+  "concurrency": 44,
+  "preset": "medium",
+  "duration_seconds": 600.0,
+  "warmup_seconds": 60.0,
+  "corpus_files": 5003,
+  "vcpus": 44,
+  "overall": {
+    "documents": 5842,
+    "documents_per_hour": 35052,
+    "pages_per_hour": 619830,
+    "input_gb_per_hour": 149.2,
+    "p50_seconds": 0.44095,
+    "p95_seconds": 7.9033500000000005,
+    "p99_seconds": 22.30025300000011,
+    "saved_percent": 73.4
+  },
+  "errors": {},
+  "invalid_outputs": 0,
+  "cpu_busy_avg": 0.996,
+  "engine_rss_peak_bytes": 28347654144,
+  "largest_job_rss_bytes": 5238886400,
+  "by_group": {
+    "forms": {
+      "documents": 342,
+      "documents_per_hour": 2052,
+      "pages_per_hour": 15312,
+      "input_gb_per_hour": 4.32,
+      "p50_seconds": 0.41515,
+      "p95_seconds": 4.149169999999999,
+      "p99_seconds": 9.005079999999952,
+      "saved_percent": 62.1
+    },
+    "general": {
+      "documents": 3464,
+      "documents_per_hour": 20784,
+      "pages_per_hour": 355146,
+      "input_gb_per_hour": 26.38,
+      "p50_seconds": 0.36214999999999997,
+      "p95_seconds": 4.232355,
+      "p99_seconds": 9.489529999999998,
+      "saved_percent": 62.8
+    },
+    "large": {
+      "documents": 673,
+      "documents_per_hour": 4038,
+      "pages_per_hour": 136098,
+      "input_gb_per_hour": 107.37,
+      "p50_seconds": 4.8357,
+      "p95_seconds": 30.16818,
+      "p99_seconds": 270.255636,
+      "saved_percent": 78.0
+    },
+    "pdfa": {
+      "documents": 358,
+      "documents_per_hour": 2148,
+      "pages_per_hour": 27180,
+      "input_gb_per_hour": 3.65,
+      "p50_seconds": 0.32225,
+      "p95_seconds": 3.371344999999983,
+      "p99_seconds": 11.81907200000002,
+      "saved_percent": 63.7
+    },
+    "scans": {
+      "documents": 301,
+      "documents_per_hour": 1806,
+      "pages_per_hour": 18864,
+      "input_gb_per_hour": 3.7,
+      "p50_seconds": 1.1284,
+      "p95_seconds": 8.3824,
+      "p99_seconds": 22.7972,
+      "saved_percent": 65.4
+    },
+    "signed": {
+      "documents": 358,
+      "documents_per_hour": 2148,
+      "pages_per_hour": 10638,
+      "input_gb_per_hour": 1.18,
+      "p50_seconds": 0.040999999999999995,
+      "p95_seconds": 0.07576499999999993,
+      "p99_seconds": 0.10336100000000001,
+      "saved_percent": 0.4
+    },
+    "text-heavy": {
+      "documents": 346,
+      "documents_per_hour": 2076,
+      "pages_per_hour": 56592,
+      "input_gb_per_hour": 2.6,
+      "p50_seconds": 0.4158,
+      "p95_seconds": 3.4344,
+      "p99_seconds": 6.743655000000002,
+      "saved_percent": 65.2
+    }
+  },
+  "by_band": {
+    "0.5-2MB": {
+      "documents": 1476,
+      "documents_per_hour": 8856,
+      "pages_per_hour": 184716,
+      "input_gb_per_hour": 9.18,
+      "p50_seconds": 0.65835,
+      "p95_seconds": 2.701375,
+      "p99_seconds": 4.91185,
+      "saved_percent": 53.7
+    },
+    "100-500KB": {
+      "documents": 1595,
+      "documents_per_hour": 9570,
+      "pages_per_hour": 84552,
+      "input_gb_per_hour": 2.53,
+      "p50_seconds": 0.2007,
+      "p95_seconds": 0.7460899999999998,
+      "p99_seconds": 1.2779019999999996,
+      "saved_percent": 38.7
+    },
+    "2-10MB": {
+      "documents": 1074,
+      "documents_per_hour": 6444,
+      "pages_per_hour": 182664,
+      "input_gb_per_hour": 27.23,
+      "p50_seconds": 2.1253,
+      "p95_seconds": 9.107500000000002,
+      "p99_seconds": 13.26510399999999,
+      "saved_percent": 64.9
+    },
+    "<100KB": {
+      "documents": 1000,
+      "documents_per_hour": 6000,
+      "pages_per_hour": 26406,
+      "input_gb_per_hour": 0.31,
+      "p50_seconds": 0.10300000000000001,
+      "p95_seconds": 0.24064499999999978,
+      "p99_seconds": 0.415113,
+      "saved_percent": 35.2
+    },
+    ">10MB": {
+      "documents": 697,
+      "documents_per_hour": 4182,
+      "pages_per_hour": 141492,
+      "input_gb_per_hour": 109.95,
+      "p50_seconds": 4.8245,
+      "p95_seconds": 30.395060000000036,
+      "p99_seconds": 269.82874799999996,
+      "saved_percent": 78.0
+    }
+  }
+}

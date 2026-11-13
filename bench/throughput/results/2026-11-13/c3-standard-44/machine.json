@@ -1,0 +1,1 @@
+{"machine_type": "c3-standard-44", "vcpus": 44, "image": "ghcr.io/alam00000/bentopdf-hyper-compress:v1.2.0", "cpu": "Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz", "arch": "x86_64", "memory_bytes": 185704210432, "kernel": "6.1.0-54-cloud-amd64"}

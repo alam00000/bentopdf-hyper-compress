@@ -1,0 +1,147 @@
+{
+  "concurrency": 4,
+  "preset": "medium",
+  "duration_seconds": 600.0,
+  "warmup_seconds": 60.0,
+  "corpus_files": 5003,
+  "vcpus": 32,
+  "overall": {
+    "documents": 1886,
+    "documents_per_hour": 11316,
+    "pages_per_hour": 215964,
+    "input_gb_per_hour": 46.32,
+    "p50_seconds": 0.1139,
+    "p95_seconds": 2.127725,
+    "p99_seconds": 6.1964200000000105,
+    "saved_percent": 68.7
+  },
+  "errors": {},
+  "invalid_outputs": 0,
+  "cpu_busy_avg": 0.253,
+  "engine_rss_peak_bytes": 6113480704,
+  "largest_job_rss_bytes": 5199466496,
+  "by_group": {
+    "forms": {
+      "documents": 104,
+      "documents_per_hour": 624,
+      "pages_per_hour": 5340,
+      "input_gb_per_hour": 1.33,
+      "p50_seconds": 0.11410000000000001,
+      "p95_seconds": 1.053,
+      "p99_seconds": 1.5404519999999997,
+      "saved_percent": 60.1
+    },
+    "general": {
+      "documents": 1143,
+      "documents_per_hour": 6858,
+      "pages_per_hour": 114612,
+      "input_gb_per_hour": 8.81,
+      "p50_seconds": 0.0983,
+      "p95_seconds": 1.238650000000003,
+      "p99_seconds": 2.658397999999985,
+      "saved_percent": 60.8
+    },
+    "large": {
+      "documents": 202,
+      "documents_per_hour": 1212,
+      "pages_per_hour": 63366,
+      "input_gb_per_hour": 32.64,
+      "p50_seconds": 1.2927499999999998,
+      "p95_seconds": 11.566724999999975,
+      "p99_seconds": 307.6651390000018,
+      "saved_percent": 72.4
+    },
+    "pdfa": {
+      "documents": 116,
+      "documents_per_hour": 696,
+      "pages_per_hour": 7098,
+      "input_gb_per_hour": 1.12,
+      "p50_seconds": 0.08374999999999999,
+      "p95_seconds": 0.805375,
+      "p99_seconds": 1.2988849999999996,
+      "saved_percent": 63.2
+    },
+    "scans": {
+      "documents": 92,
+      "documents_per_hour": 552,
+      "pages_per_hour": 7530,
+      "input_gb_per_hour": 1.3,
+      "p50_seconds": 0.2718,
+      "p95_seconds": 2.6363700000000003,
+      "p99_seconds": 6.419784000000004,
+      "saved_percent": 62.7
+    },
+    "signed": {
+      "documents": 112,
+      "documents_per_hour": 672,
+      "pages_per_hour": 3528,
+      "input_gb_per_hour": 0.35,
+      "p50_seconds": 0.0069,
+      "p95_seconds": 0.011450000000000002,
+      "p99_seconds": 0.018038000000000002,
+      "saved_percent": 0.0
+    },
+    "text-heavy": {
+      "documents": 117,
+      "documents_per_hour": 702,
+      "pages_per_hour": 14490,
+      "input_gb_per_hour": 0.76,
+      "p50_seconds": 0.0937,
+      "p95_seconds": 0.9119800000000001,
+      "p99_seconds": 2.0346920000000024,
+      "saved_percent": 65.5
+    }
+  },
+  "by_band": {
+    "0.5-2MB": {
+      "documents": 466,
+      "documents_per_hour": 2796,
+      "pages_per_hour": 54390,
+      "input_gb_per_hour": 2.9,
+      "p50_seconds": 0.1758,
+      "p95_seconds": 0.7420500000000001,
+      "p99_seconds": 1.2931150000000007,
+      "saved_percent": 53.9
+    },
+    "100-500KB": {
+      "documents": 529,
+      "documents_per_hour": 3174,
+      "pages_per_hour": 27930,
+      "input_gb_per_hour": 0.83,
+      "p50_seconds": 0.047,
+      "p95_seconds": 0.18888000000000002,
+      "p99_seconds": 0.36778000000000044,
+      "saved_percent": 38.4
+    },
+    "2-10MB": {
+      "documents": 355,
+      "documents_per_hour": 2130,
+      "pages_per_hour": 60132,
+      "input_gb_per_hour": 8.89,
+      "p50_seconds": 0.5559,
+      "p95_seconds": 2.4960500000000008,
+      "p99_seconds": 4.1545739999999824,
+      "saved_percent": 62.4
+    },
+    "<100KB": {
+      "documents": 324,
+      "documents_per_hour": 1944,
+      "pages_per_hour": 7836,
+      "input_gb_per_hour": 0.1,
+      "p50_seconds": 0.0168,
+      "p95_seconds": 0.0519,
+      "p99_seconds": 0.10698699999999994,
+      "saved_percent": 35.7
+    },
+    ">10MB": {
+      "documents": 212,
+      "documents_per_hour": 1272,
+      "pages_per_hour": 65676,
+      "input_gb_per_hour": 33.6,
+      "p50_seconds": 1.2627000000000002,
+      "p95_seconds": 10.422974999999974,
+      "p99_seconds": 287.7675289999973,
+      "saved_percent": 72.5
+    }
+  }
+}

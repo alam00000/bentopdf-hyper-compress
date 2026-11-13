@@ -34,6 +34,10 @@ features:
     details: On 1,000 real PDFs it saved more than the PDF Tools, Apryse and Nutrient SDKs at every level, with no failures. Every file and script is published.
     link: /benchmarks
     linkText: See the benchmarks
+  - title: Fast at scale
+    details: One 8-CPU server compresses about 11,700 real PDFs an hour, or 65,000 an hour when they are under 5 MB. Every job runs in its own process, safely in parallel.
+    link: /benchmarks#throughput
+    linkText: See the throughput
   - title: One engine, everywhere
     details: The same engine and options in the browser, the CLI, Node.js, Rust, C and a self-hosted HTTP service, on macOS, Linux (x64 and ARM64) and Windows.
     link: /platforms

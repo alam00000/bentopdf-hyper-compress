@@ -76,24 +76,25 @@ scan.pdf 3735039 -> 486287
 
 One failed file does not stop the batch: each error is caught and logged, and the loop moves on. Errors are rare; a broken PDF usually comes back as its original bytes instead. See [Errors, timeouts and cancellation](/guides/errors-and-cancellation).
 
-### Run a few at a time
+### Run one job per core
 
-On a machine with many cores, two to four jobs at once finish a batch sooner. Inside one job the native engine uses up to 8 threads for image work, or as many cores as the machine has if fewer, so more parallel jobs than that rarely help.
+On a machine with many cores, run several jobs at once to finish a batch sooner. Inside one job the native engine uses up to 8 threads for image work, but only for part of the job; on average a job keeps about two cores busy, and the machine is only fully busy with about one job per core. In the [throughput benchmark](/benchmarks#throughput), 4 jobs at once on a 32-CPU server did under a third of the work of 32 jobs at once.
 
 ::: code-group
 
 ```bash [CLI]
 mkdir -p out
 find in -name '*.pdf' -print0 |
-  xargs -0 -P 3 -I{} sh -c 'hyper "$1" "out/$(basename "$1")"' _ {}
+  xargs -0 -P "$(getconf _NPROCESSORS_ONLN)" -I{} sh -c 'hyper "$1" "out/$(basename "$1")"' _ {}
 ```
 
 ```js [Node.js]
 import { mkdir, readdir } from 'node:fs/promises';
+import { availableParallelism } from 'node:os';
 import path from 'node:path';
 import { compress } from 'hyper-compress';
 
-const CONCURRENCY = 3;
+const CONCURRENCY = availableParallelism();
 const files = (await readdir('in')).filter((n) => n.toLowerCase().endsWith('.pdf'));
 await mkdir('out', { recursive: true });
 
@@ -119,6 +120,8 @@ await Promise.all(Array.from({ length: CONCURRENCY }, worker));
 :::
 
 In Node.js, each `compress` and `verifyPassword` call runs on its own thread, outside Node's built-in thread pool, so parallel calls do not wait on each other or block your app's file reads. CPU cores are the real limit.
+
+Every surface is thread safe; see [Safe to call from many threads at once](/guarantees#safe-to-call-from-many-threads-at-once) for how each one behaves.
 
 ## 3. Size the HTTP service
 
@@ -148,7 +151,7 @@ On start the server prints one line:
 hyper-compress server on http://0.0.0.0:8080 (concurrency 4, max upload 200MB)
 ```
 
-Start with `HYPER_CONCURRENCY` at 2 on a small server and 4 to 8 on a large one, then watch memory under real traffic. Each running job is a separate engine process with up to 8 threads of its own.
+Set `HYPER_CONCURRENCY` to the number of CPUs the container can use, then watch memory under real traffic; plan about 1.5 GB per job, more for large scans. Each running job is a separate engine process. With one job per CPU, every core stays busy: in the [throughput benchmark](/benchmarks#throughput) an 8-CPU Arm server compressed 11,694 real PDFs an hour this way.
 
 A queued request waits before its upload is read, so a waiting client's upload is paused, not held in the server's memory.
 

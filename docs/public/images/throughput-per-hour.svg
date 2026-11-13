@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 278" width="800" height="278" role="img" aria-label="PDFs compressed per hour, every core busy">
+<style>
+svg{--surface:#fcfcfb;--text:#0b0b0b;--muted:#52514e;--grid:#e6e5e0;--arm:#2a78d6;--intel:#eb6834;
+font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}
+@media (prefers-color-scheme:dark){svg{--surface:#1a1a19;--text:#f0efec;--muted:#c3c2b7;--grid:#383835;
+--arm:#3987e5;--intel:#d95926}}
+.bg{fill:var(--surface)}.t{fill:var(--text)}.m{fill:var(--muted)}.g{stroke:var(--grid);stroke-width:1}
+.arm{fill:var(--arm)}.intel{fill:var(--intel)}
+</style>
+<rect class="bg" width="800" height="278" rx="8"/>
+<text class="t" x="20" y="32" font-size="18" font-weight="600">PDFs compressed per hour, every core busy</text>
+<text class="m" x="20" y="54" font-size="13">5,003 real public PDFs, Hyper Compress 1.2.0, medium preset</text>
+<rect class="arm" x="210" y="66" width="12" height="12" rx="2"/><text class="m" x="228" y="76" font-size="13">Arm</text><rect class="intel" x="280" y="66" width="12" height="12" rx="2"/><text class="m" x="298" y="76" font-size="13">Intel</text>
+<line class="g" x1="210.0" x2="210.0" y1="86" y2="244"/><text class="m" x="210.0" y="262" font-size="12" text-anchor="middle">0</text>
+<line class="g" x1="337.4127087399696" x2="337.4127087399696" y1="86" y2="244"/><text class="m" x="337.4127087399696" y="262" font-size="12" text-anchor="middle">10K</text>
+<line class="g" x1="464.82541747993923" x2="464.82541747993923" y1="86" y2="244"/><text class="m" x="464.82541747993923" y="262" font-size="12" text-anchor="middle">20K</text>
+<line class="g" x1="592.238126219909" x2="592.238126219909" y1="86" y2="244"/><text class="m" x="592.238126219909" y="262" font-size="12" text-anchor="middle">30K</text>
+<line class="g" x1="719.6508349598785" x2="719.6508349598785" y1="86" y2="244"/><text class="m" x="719.6508349598785" y="262" font-size="12" text-anchor="middle">40K</text>
+<line class="g" x1="210" x2="210" y1="86" y2="244"/>
+<text class="t" x="198" y="107.0" font-size="13" text-anchor="end">8-CPU Arm server</text>
+<path class="arm" d="M210,92h144.9964216005205a4,4 0 0 1 4,4v12a4,4 0 0 1 -4,4h-144.9964216005205z"><title>c4a-standard-8: 11,694 PDFs per hour</title></path>
+<text class="t" x="366.99642160052053" y="107.0" font-size="13" font-weight="600">11,694</text>
+<text class="t" x="198" y="145.0" font-size="13" text-anchor="end">8-CPU Intel server</text>
+<path class="intel" d="M210,130h97.29310344827586a4,4 0 0 1 4,4v12a4,4 0 0 1 -4,4h-97.29310344827586z"><title>c3-standard-8: 7,950 PDFs per hour</title></path>
+<text class="t" x="319.2931034482759" y="145.0" font-size="13" font-weight="600">7,950</text>
+<text class="t" x="198" y="183.0" font-size="13" text-anchor="end">32-CPU Arm server</text>
+<path class="arm" d="M210,168h466.0a4,4 0 0 1 4,4v12a4,4 0 0 1 -4,4h-466.0z"><title>c4a-standard-32: 36,888 PDFs per hour</title></path>
+<text class="t" x="688.0" y="183.0" font-size="13" font-weight="600">36,888</text>
+<text class="t" x="198" y="221.0" font-size="13" text-anchor="end">44-CPU Intel server</text>
+<path class="intel" d="M210,206h442.60702667534156a4,4 0 0 1 4,4v12a4,4 0 0 1 -4,4h-442.60702667534156z"><title>c3-standard-44: 35,052 PDFs per hour</title></path>
+<text class="t" x="664.6070266753416" y="221.0" font-size="13" font-weight="600">35,052</text>
+</svg>

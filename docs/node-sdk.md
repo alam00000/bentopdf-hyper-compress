@@ -333,14 +333,15 @@ Use `totalTimeoutMs` when you need a hard upper bound on how long a call takes. 
 
 ## Parallel use
 
-Each `compress` and `verifyPassword` call runs on its own thread, not on Node.js's libuv thread pool, so `UV_THREADPOOL_SIZE` does not limit them and they do not block your file system calls. Each call also starts its own engine process, which uses up to 8 threads, so the number of CPU cores is the real limit. Run a few at a time:
+Each `compress` and `verifyPassword` call runs on its own thread, not on Node.js's libuv thread pool, so `UV_THREADPOOL_SIZE` does not limit them and they do not block your file system calls. Each call also starts its own engine process, which uses up to 8 threads, so the number of CPU cores is the real limit. Run about one call per core:
 
 ```js
 import { readdir } from 'node:fs/promises';
+import { availableParallelism } from 'node:os';
 import { compress } from 'hyper-compress';
 
 const files = (await readdir('.')).filter((name) => name.endsWith('.pdf') && !name.includes('-compressed'));
-const limit = 2;
+const limit = availableParallelism();
 for (let i = 0; i < files.length; i += limit) {
   const batch = files.slice(i, i + limit);
   const results = await Promise.all(batch.map((name) => compress({ sourcePath: name })));

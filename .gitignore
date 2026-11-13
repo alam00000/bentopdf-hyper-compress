@@ -39,3 +39,4 @@ docs/.vitepress/dist/
 core/build/llvm-shim/
 rust/target/
 cli/prebuilt/hyper-compress.node
+__pycache__/

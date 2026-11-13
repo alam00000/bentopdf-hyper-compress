@@ -101,6 +101,8 @@ Hyper Compress is built around solving these three problems.
 
 * **Built for reliability.** Hyper validates its output and verifies transformations that can affect visual fidelity. When a change cannot reproduce a page faithfully, it is rolled back. Across the benchmark, Hyper had a **0.39% corruption rate**, the lowest of any engine measured.
 
+* **Thread safe and parallel.** Every compression in the CLI, Node.js SDK, Rust crate and self-hosted service runs in its own engine process, so jobs run side by side on every CPU core and one bad file cannot affect another. The C API is safe to call from any thread.
+
 * **One engine, everywhere.** The same compression engine powers the CLI, the Node.js SDK, the Rust crate, the C API, the self-hosted service and the WebAssembly build, on macOS, Linux (x64 and ARM64) and Windows.
 
 
@@ -333,6 +335,21 @@ Robustness across the same benchmark:
 > You can also run the harness against your own documents:
 >
 > `make bench CORPUS=path/to/corpus`
+
+### Throughput: PDFs per hour as a service
+
+Hyper ran as an HTTP service from the public Docker image (`medium` preset, one job per CPU) on **5,003 real public PDFs** (25 GB, 1 KB to 408 MB: everyday documents, forms, signed, PDF/A, scans and 600 files over 10 MB), for 10 minutes per server with every core busy.
+
+| Server | PDFs per hour | Per hour, files under 5 MB | Typical file | Errors | Cost per 1,000 PDFs |
+|---|---|---|---|---|---|
+| 8-CPU Arm | **11,694** | **65,471** | 0.29 s | 0 | **$0.031** |
+| 32-CPU Arm | **36,888** | **271,840** | 0.25 s | 0 | **$0.039** |
+| 8-CPU Intel | 7,950 | 37,455 | 0.47 s | 0 | $0.051 |
+| 44-CPU Intel | 35,052 | 203,106 | 0.44 s | 0 | $0.063 |
+
+![PDFs compressed per hour, every core busy](bench/throughput/results/2026-11-13/charts/throughput.svg)
+
+Every file completed with no errors and no broken output. Arm is Google Axion (Neoverse V2), Intel is Xeon Platinum 8481C (Sapphire Rapids); costs are Google Cloud on-demand list prices, November 2026. The full report, with results by file size and kind of PDF, the corpus list and the scripts to rerun it on your own server, is in [bench/throughput/REPORT.md](bench/throughput/REPORT.md).
 
 ---
 

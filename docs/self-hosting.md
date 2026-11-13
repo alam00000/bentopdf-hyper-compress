@@ -154,7 +154,9 @@ docker run -d --name hyper -p 8080:8080 \
 
 Each job runs the engine as a separate process. Inside one job the engine uses as many threads as the machine has cores, up to 8, for image work. Memory per job grows with the largest images in the document, so large scans need more headroom than text documents.
 
-Set `HYPER_CONCURRENCY` from your cores and memory: the default `2` suits a small VPS, and 4 to 8 suits a larger server. Raise `HYPER_QUEUE` to absorb bursts without `429`; each waiting request holds an open connection and nothing else. Then measure with your own files.
+Set `HYPER_CONCURRENCY` to the number of CPUs the container can use: one job per CPU keeps every core busy, and fewer leaves cores idle (on a 32-CPU server, 4 jobs at once did under a third of the work of 32). The default `2` suits a small VPS. Plan about 1.5 GB of memory per job; large scans need more. Raise `HYPER_QUEUE` to absorb bursts without `429`; each waiting request holds an open connection and nothing else. Then measure with your own files.
+
+Measured throughput: in the [throughput benchmark](/benchmarks#throughput), with one job per CPU on 5,003 real PDFs, an 8-CPU Arm server compressed 11,694 PDFs an hour (65,471 an hour of files under 5 MB) and a 32-CPU Arm server 36,888 an hour, with memory peaking at 10 GB and 23 GB.
 
 Measured speed: in the [benchmark](/benchmarks), 1,000 real PDFs (3 MB on average) were compressed 4 at a time on a MacBook Pro with an Apple M4 and 16 GB of memory, through the CLI. The median file took 0.15 seconds with `lossless`, 0.21 s with `low`, 0.25 s with `medium` and 0.33 s with `high`, including starting the process. The whole set took 8.0 minutes with `lossless` and 14.5 to 20.7 minutes with the other presets. Your hardware and documents will give different numbers.
 

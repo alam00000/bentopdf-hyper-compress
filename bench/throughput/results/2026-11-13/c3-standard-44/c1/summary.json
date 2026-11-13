@@ -1,0 +1,97 @@
+{
+  "concurrency": 1,
+  "preset": "medium",
+  "duration_seconds": 600.0,
+  "warmup_seconds": 60.0,
+  "corpus_files": 5003,
+  "vcpus": 44,
+  "overall": {
+    "documents": 9,
+    "documents_per_hour": 54,
+    "pages_per_hour": 7830,
+    "input_gb_per_hour": 1.66,
+    "p50_seconds": 0.9991,
+    "p95_seconds": 239.69281999999987,
+    "p99_seconds": 366.250324,
+    "saved_percent": 18.9
+  },
+  "errors": {},
+  "invalid_outputs": 0,
+  "cpu_busy_avg": 0.053,
+  "engine_rss_peak_bytes": 812351488,
+  "largest_job_rss_bytes": 789729280,
+  "by_group": {
+    "general": {
+      "documents": 3,
+      "documents_per_hour": 18,
+      "pages_per_hour": 336,
+      "input_gb_per_hour": 0.07,
+      "p50_seconds": 0.2212,
+      "p95_seconds": 1.5326799999999998,
+      "p99_seconds": 1.6492559999999998,
+      "saved_percent": 88.1
+    },
+    "large": {
+      "documents": 4,
+      "documents_per_hour": 24,
+      "pages_per_hour": 7458,
+      "input_gb_per_hour": 1.59,
+      "p50_seconds": 1.8027,
+      "p95_seconds": 338.56587,
+      "p99_seconds": 386.0249340000001,
+      "saved_percent": 15.9
+    },
+    "signed": {
+      "documents": 2,
+      "documents_per_hour": 12,
+      "pages_per_hour": 36,
+      "input_gb_per_hour": 0.0,
+      "p50_seconds": 0.0072499999999999995,
+      "p95_seconds": 0.007565,
+      "p99_seconds": 0.007593,
+      "saved_percent": 0.0
+    }
+  },
+  "by_band": {
+    "0.5-2MB": {
+      "documents": 2,
+      "documents_per_hour": 12,
+      "pages_per_hour": 144,
+      "input_gb_per_hour": 0.01,
+      "p50_seconds": 0.17520000000000002,
+      "p95_seconds": 0.21660000000000001,
+      "p99_seconds": 0.22028,
+      "saved_percent": 68.0
+    },
+    "100-500KB": {
+      "documents": 2,
+      "documents_per_hour": 12,
+      "pages_per_hour": 36,
+      "input_gb_per_hour": 0.0,
+      "p50_seconds": 0.0072499999999999995,
+      "p95_seconds": 0.007565,
+      "p99_seconds": 0.007593,
+      "saved_percent": 0.0
+    },
+    "2-10MB": {
+      "documents": 1,
+      "documents_per_hour": 6,
+      "pages_per_hour": 192,
+      "input_gb_per_hour": 0.06,
+      "p50_seconds": 1.6784,
+      "p95_seconds": 1.6784,
+      "p99_seconds": 1.6784,
+      "saved_percent": 91.9
+    },
+    ">10MB": {
+      "documents": 4,
+      "documents_per_hour": 24,
+      "pages_per_hour": 7458,
+      "input_gb_per_hour": 1.59,
+      "p50_seconds": 1.8027,
+      "p95_seconds": 338.56587,
+      "p99_seconds": 386.0249340000001,
+      "saved_percent": 15.9
+    }
+  }
+}
