@@ -33,8 +33,8 @@ COPY . .
 RUN docker/build-jpegli-linux.sh && docker/build-linux.sh
 RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal \
     && . "$HOME/.cargo/env" \
-    && cargo build --release --locked -p hyper-compress-node --manifest-path rust/Cargo.toml \
-    && cp rust/target/release/libhyper_compress_node.so cli/prebuilt/hyper-compress.node
+    && cargo build --release --locked -p hyper-compress-cli -p hyper-compress-server --manifest-path rust/Cargo.toml \
+    && cp rust/target/release/hyper rust/target/release/hyper-server cli/prebuilt/
 
 FROM node:22-slim AS app
 WORKDIR /engine
@@ -43,27 +43,23 @@ COPY sdk sdk
 COPY cli/bin cli/bin
 COPY scripts/smoke.ts scripts/
 COPY wasm/glue.ts wasm/
-COPY server server
 COPY tests/cli.test.ts tests/engine.integration.test.ts tests/errors.test.ts tests/helpers.ts tests/options.test.ts tests/pdfa.test.ts tests/
 RUN npm ci --no-audit --no-fund && npm run build && npm prune --omit=dev
 
-FROM node:22-trixie-slim
+FROM debian:trixie-slim
 RUN apt-get update && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends qpdf \
     && rm -rf /var/lib/apt/lists/* \
-    && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /opt/yarn-* \
-    /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/bin/yarn /usr/local/bin/yarnpkg
+    && useradd --uid 1000 --create-home hyper
 WORKDIR /engine
-COPY --from=app /engine/dist dist
-COPY --from=app /engine/node_modules node_modules
-COPY --from=app /engine/package.json package.json
+COPY --from=app /engine/dist/sdk/node dist/sdk/node
 COPY web/index.html web/options-ui.js web/app.js web/app.css web/engine-http.js web/
 COPY web/fonts web/fonts
 COPY web/icons web/icons
 COPY docker/entrypoint.sh /entrypoint.sh
-COPY --from=native /engine/cli/prebuilt/hpdf-worker /engine/cli/prebuilt/hpdf-render /engine/cli/prebuilt/hyper-compress.node cli/prebuilt/
+COPY --from=native /engine/cli/prebuilt/hpdf-worker /engine/cli/prebuilt/hpdf-render /engine/cli/prebuilt/hyper /engine/cli/prebuilt/hyper-server cli/prebuilt/
 ENV HYPER_QPDF=/usr/bin/qpdf
-USER node
+USER hyper
 EXPOSE 8080
 WORKDIR /work
 ENTRYPOINT ["/entrypoint.sh"]

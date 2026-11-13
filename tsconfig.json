@@ -24,7 +24,6 @@
     "cli/bin/**/*.ts",
     "scripts/**/*.ts",
     "wasm/*.ts",
-    "tests/**/*.ts",
-    "server/**/*.ts"
+    "tests/**/*.ts"
   ]
 }

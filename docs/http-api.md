@@ -68,11 +68,13 @@ The request body is the PDF itself, with any `Content-Type`. Requests are queued
 Custom settings, URL-encoded by curl itself:
 
 ```bash
-curl -o out.pdf --data-binary @in.pdf -G -X POST \
-  'http://localhost:8080/api/compress' \
-  --data-urlencode 'preset=custom' \
-  --data-urlencode 'options={"imageQuality":35,"grayscale":true}'
+curl -o out.pdf --data-binary @in.pdf \
+  --url-query 'preset=custom' \
+  --url-query 'options={"imageQuality":35,"grayscale":true}' \
+  'http://localhost:8080/api/compress'
 ```
+
+`--url-query` needs curl 7.87 or newer. Do not use `-G` here: it moves the PDF itself into the URL.
 
 ### Headers
 

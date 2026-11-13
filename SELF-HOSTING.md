@@ -85,5 +85,5 @@ docker run --rm -v "$PWD":/work ghcr.io/alam00000/bentopdf-hyper-compress:latest
 ## Without docker
 
 ```bash
-npm ci && npm run serve      # needs built worker binaries in cli/prebuilt/
+npm ci && npm run serve      # needs Rust, and built worker binaries in cli/prebuilt/
 ```

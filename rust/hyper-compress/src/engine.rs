@@ -24,6 +24,15 @@ pub struct Binaries {
 }
 
 impl Binaries {
+    pub fn beside_exe() -> Binaries {
+        let mut search_dirs = Vec::new();
+        if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf)) {
+            search_dirs.push(dir.clone());
+            search_dirs.extend(dir.ancestors().take(8).map(|d| d.join("cli").join("prebuilt")));
+        }
+        Binaries { worker: None, qpdf: None, search_dirs }
+    }
+
     fn find(&self, explicit: &Option<PathBuf>, env: &str, name: &str) -> Option<PathBuf> {
         if let Some(p) = explicit {
             return Some(p.clone());

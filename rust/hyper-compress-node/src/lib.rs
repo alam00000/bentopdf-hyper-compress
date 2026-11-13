@@ -9,6 +9,7 @@ use napi_derive::napi;
 use serde_json::{json, Map, Value};
 
 #[napi]
+#[derive(Default)]
 pub struct CancelHandle(CancelToken);
 
 #[napi]
