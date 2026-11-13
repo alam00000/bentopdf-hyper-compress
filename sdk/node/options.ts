@@ -283,11 +283,11 @@ export const HYPER_OPTION_DOCS: Record<keyof HyperCompressOptions, HyperOptionDo
   },
   forceDownsample: {
     group: 'Images', type: 'boolean', default: false,
-    description: 'Resample even when the image is only slightly above the limit.',
+    description: 'Resample every image above the limit, even one only slightly above it. By default lossless images are left alone until they exceed the limit by half, because resampling them buys little.',
   },
   lossless: {
     group: 'Images', type: 'boolean', default: false,
-    description: 'Turns off quality, resolution and every other lossy image step.',
+    description: 'Turns off quality, resolution, colour conversion and every other lossy image step. Images are only stored more efficiently, so every pixel stays the same.',
   },
   grayscale: {
     group: 'Images', type: 'boolean', default: false,
@@ -311,7 +311,7 @@ export const HYPER_OPTION_DOCS: Record<keyof HyperCompressOptions, HyperOptionDo
   },
   reduceColor: {
     group: 'Images', type: 'boolean', default: false,
-    description: 'Reduce colour complexity where it does not change appearance.',
+    description: 'Store images with few colours as palette (indexed) images, which are much smaller than full colour. Only images that look the same afterwards are converted.',
   },
   clipImages: {
     group: 'Images', type: 'boolean', default: false,
@@ -323,11 +323,11 @@ export const HYPER_OPTION_DOCS: Record<keyof HyperCompressOptions, HyperOptionDo
   },
   removeAlternates: {
     group: 'Images', type: 'boolean', default: false,
-    description: 'Drop alternate image versions.',
+    description: 'Remove alternate versions of images, such as high resolution copies kept for printing. Viewers show the main image either way.',
   },
   flattenIcc: {
     group: 'Images', type: 'boolean', default: false,
-    description: 'Flatten ICC colour profiles.',
+    description: 'Replace embedded ICC colour profiles of 2 KB or more on page content with the matching plain colour space (gray, RGB or CMYK). Saves the profile bytes; colours can shift slightly where the profile differed from the standard one.',
   },
   mrc: {
     group: 'Images', type: 'enum', values: MRC_MODES, default: 'off',
@@ -371,11 +371,11 @@ export const HYPER_OPTION_DOCS: Record<keyof HyperCompressOptions, HyperOptionDo
   },
   subsetFonts: {
     group: 'Fonts', type: 'boolean', default: false,
-    description: 'Keep only the glyphs the document uses. Lossless by definition.',
+    description: 'Keep only the glyphs the document uses. Lossless: the text looks and searches the same.',
   },
   removeStandardFonts: {
     group: 'Fonts', type: 'boolean', default: false,
-    description: 'Unembed the standard 14 PDF fonts; viewers supply them.',
+    description: 'Unembed the standard 14 PDF fonts (Times, Helvetica, Courier, Symbol and ZapfDingbats in their styles); every viewer has them built in.',
   },
   unembedAliasedFonts: {
     group: 'Fonts', type: 'boolean', default: false,
@@ -383,7 +383,7 @@ export const HYPER_OPTION_DOCS: Record<keyof HyperCompressOptions, HyperOptionDo
   },
   mergeFonts: {
     group: 'Fonts', type: 'boolean', default: false,
-    description: 'Merge duplicate font programs and dictionaries.',
+    description: 'Merge duplicate font programs and font dictionaries, and with them duplicate objects and resources, so each is stored once.',
   },
   annotations: {
     group: 'Structure and interactivity', type: 'enum', values: ANNOTATION_MODES, default: 'keep',
@@ -419,7 +419,7 @@ export const HYPER_OPTION_DOCS: Record<keyof HyperCompressOptions, HyperOptionDo
   },
   flattenLinks: {
     group: 'Structure and interactivity', type: 'boolean', default: false,
-    description: 'Flatten link annotations. Links stop being clickable.',
+    description: 'Draw link annotations into the page. Links stop being clickable; any visible link border stays on the page.',
   },
   removeSignatures: {
     group: 'Structure and interactivity', type: 'boolean', default: false,
@@ -431,7 +431,7 @@ export const HYPER_OPTION_DOCS: Record<keyof HyperCompressOptions, HyperOptionDo
   },
   removeThreads: {
     group: 'Structure and interactivity', type: 'boolean', default: false,
-    description: 'Remove article threads.',
+    description: 'Remove article threads, the reading order chains some magazines and newspapers use to jump between columns.',
   },
   removeThumbnails: {
     group: 'Metadata and cleanup', type: 'boolean', default: false,
@@ -439,15 +439,15 @@ export const HYPER_OPTION_DOCS: Record<keyof HyperCompressOptions, HyperOptionDo
   },
   removeAppData: {
     group: 'Metadata and cleanup', type: 'boolean', default: false,
-    description: 'Remove application-private data and piece info.',
+    description: 'Remove application private data (PieceInfo) that programs like Illustrator store to reopen the file for editing. Viewers never use it.',
   },
   removeSpiderInfo: {
     group: 'Metadata and cleanup', type: 'boolean', default: false,
-    description: 'Remove web capture information.',
+    description: 'Remove web capture information (SpiderInfo) left by tools that converted web pages to PDF.',
   },
   removeOutputIntents: {
     group: 'Metadata and cleanup', type: 'boolean', default: false,
-    description: 'Remove output intents.',
+    description: 'Remove output intents, which tell a printer which colour profile the document was prepared for. Needed for PDF/A and PDF/X; kept while preserving PDF/A.',
   },
   removeMetadata: {
     group: 'Metadata and cleanup', type: 'boolean', default: false,

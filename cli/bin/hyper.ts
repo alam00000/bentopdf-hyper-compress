@@ -175,7 +175,7 @@ async function main(): Promise<void> {
     `${res.outputPath}\n` +
       `  ${res.originalSize} -> ${res.compressedSize} bytes (${pct}% smaller)` +
       `${res.signed ? ' [signed: original preserved]' : ''}` +
-      `${res.metTarget === null ? '' : res.metTarget ? ' [target met]' : ' [target NOT met  - best effort]'}\n`,
+      `${res.metTarget === null ? '' : res.metTarget ? ' [target met]' : ' [target NOT met - best effort]'}\n`,
   );
 }
 

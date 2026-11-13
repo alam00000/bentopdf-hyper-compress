@@ -42,7 +42,7 @@ Two flags answer questions rather than compress anything:
 
 ```bash
 hyper --help      # the full option list with examples (also -h)
-hyper --version   # the installed version (also -v)
+hyper --version   # the installed version (also -v or -V)
 ```
 
 Both print to stdout and exit 0, so `hyper --version` is safe to use in scripts.
@@ -71,7 +71,7 @@ For encrypted input. A wrong password fails with `error: decrypt_failed`; there 
 hyper scan.pdf out.pdf --target-size 2MB
 ```
 
-Accepts `KB`, `MB` or a bare byte count. The engine searches for the highest image quality that still fits under your target, and if nothing fits it keeps pushing: quality down to 5, then resolution down through 72, 50 and 36 dpi.
+Accepts a number with `KB`, `MB`, `K`, `M` or `B`, in any case, or a bare byte count. Decimals work (`1.5MB`), and a kilobyte is 1024 bytes, so `2MB` is 2,097,152 bytes. The engine searches for the highest image quality that still fits under your target, and if nothing fits it keeps pushing: quality down to 5, then resolution down through 72, 50 and 36 dpi.
 
 If the target is reachable you get the best looking file that fits. If it is not, you get the smallest file the engine could produce, a `[target NOT met - best effort]` note, and a warning saying how small it managed to get. The command still exits 0, because compressing succeeded even though the target did not. For image-only documents that still miss, add `--set rasterizePages=true`, which can go dramatically further.
 
@@ -81,7 +81,7 @@ If the target is reachable you get the best looking file that fits. If it is not
 hyper in.pdf out.pdf --set grayscale=true --set imageQuality=40
 ```
 
-Overrides any of the engine options on top of the preset, by its camelCase name. `true`, `false` and numbers are parsed; the flag repeats. Every name, range and default is in the [options reference](/options). Two useful examples:
+Overrides any of the engine options on top of the preset, by its camelCase name. `true`, `false` and numbers are parsed, anything else is passed as text (`colorTarget=cmyk`); the flag repeats, and a later `--set` for the same key wins. Names are case sensitive and an unknown name is ignored without an error, so check the spelling against the reference if a setting seems to do nothing. Out of range numbers are clamped to the allowed range. Every name, range and default is in the [options reference](/options). Two useful examples:
 
 ```bash
 hyper scan.pdf out.pdf --set rasterizePages=true --set rasterizeDpi=100
@@ -136,7 +136,7 @@ hyper --help      # or -h
 hyper --version   # or -v
 ```
 
-`--help` prints every flag with examples; `--version` prints just the version number, like `0.1.0`, which makes it easy to check in scripts or bug reports.
+`--help` prints every flag with examples; `--version` prints just the version number, like `1.1.4`, which makes it easy to check in scripts or bug reports.
 
 ## Exit codes
 
@@ -146,13 +146,19 @@ hyper --version   # or -v
 | 1 | any error; the message is on stderr |
 | 2 | bad usage; the usage text is on stderr |
 
+Each stage of a compression (decrypt, engine pass, repack) has a 10 minute limit. A stage that runs longer stops the command with `error: timeout`.
+
+## Warnings
+
+Anything the engine skipped instead of doing is printed to stderr as a `warning:` line, and the command still exits 0. The full list of warnings is on the [guarantees](/guarantees#every-warning) page.
+
 ## Troubleshooting
 
 **`hyper: command not found`.** Either install globally (`npm install -g hyper-compress`) or run it through npx from a folder where you installed it (`npx hyper ...`). If a global install still is not found, your npm global bin directory is not on PATH; `npm bin -g` shows where it is.
 
 **`error: decrypt_failed`.** The input is encrypted and the password is wrong or missing. Pass `--password`.
 
-**`error: no hpdf-worker binary for <platform>`.** There is no native engine build for your platform (for example Intel macOS or ARM Linux). Use the [WebAssembly package](/wasm), or build from source and point `HYPER_DRV` at your binary.
+**`error: no hpdf-worker binary for <platform>`.** There is no native engine build for your platform (for example Intel macOS or Alpine Linux). Use the [WebAssembly package](/wasm), or build from source and point `HYPER_DRV` at your binary.
 
 **The output says "no gain, original kept" or 0% smaller.** The document is already as small as this engine can make it at that preset; you received your original bytes back. Try `--preset high`, or for image-only scans, `--set rasterizePages=true`.
 

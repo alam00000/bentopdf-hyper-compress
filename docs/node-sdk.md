@@ -6,7 +6,17 @@ The programming interface behind the CLI. Node.js 22 or newer, ESM only.
 npm install hyper-compress
 ```
 
-The native engine binaries arrive automatically through a platform package (`hyper-compress-darwin-arm64`, `-linux-x64` or `-win32-x64`); npm installs the one matching your machine. There are no postinstall scripts. On platforms without a native package, use the [WebAssembly package](/wasm); to use binaries you built yourself, set the `HYPER_DRV` and `HYPER_QPDF` environment variables and they take precedence over everything.
+The native engine binaries arrive automatically through a platform package (`hyper-compress-darwin-arm64`, `-linux-x64`, `-linux-arm64` or `-win32-x64`); npm installs the one matching your machine. There are no postinstall scripts. On platforms without a native package, use the [WebAssembly package](/wasm).
+
+### Where the engine binaries come from
+
+The SDK's pipeline (decryption, the engine pass, repacking, the size target search, PDF/A handling and the report) is written in Rust and loaded as a native addon, `hyper-compress.node`. It runs two binaries: `hpdf-worker` (the compression engine, in its own process so a bad file cannot crash yours) and `qpdf` (decryption, repacking and linearization). For each of the three files it takes the first that exists:
+
+1. the path in an environment variable: `HYPER_ADDON` for the addon, `HYPER_DRV` for `hpdf-worker`, `HYPER_QPDF` for `qpdf`; when only `HYPER_DRV` is set, the addon is also looked for in the same folder
+2. a `cli/prebuilt/` folder in the package or any of the 8 folders above it (a repository checkout)
+3. the `bin/` folder of the platform package for your platform and CPU
+
+If none exists, `compress` throws `engine_error` with a message naming your platform.
 
 ## A complete first program
 
@@ -46,8 +56,10 @@ interface CompressInput {
   options?: Partial<HyperCompressOptions>;         // overrides applied on top of the preset
   password?: string | null;                        // password for encrypted input
   targetSizeBytes?: number;                        // aim for a size; see metTarget
+  report?: boolean | string;                       // true, or a path to also write it as JSON
   signal?: AbortSignal;                            // cancel the run
   timeoutMs?: number;                              // per-stage timeout, default 600000 (10 minutes)
+  totalTimeoutMs?: number;                         // limit for the whole call; no limit by default
 }
 
 interface CompressResult {
@@ -60,8 +72,13 @@ interface CompressResult {
   pdfaPreserved: boolean;        // output still carries a valid PDF/A claim
   metTarget: boolean | null;     // whether targetSizeBytes was met; null when no target was set
   warnings: string[];            // options requested but skipped, and why
+  report?: HyperReport;          // present when report was requested
 }
 ```
+
+A compression runs in stages: decrypt (only with a password), the engine pass, and a repack. Each stage is a separate process with its own `timeoutMs`. A size target runs the engine and repack again for every attempt, so with a target, `totalTimeoutMs` is the setting that bounds the whole call.
+
+When `savePath` is left out, the output goes beside the input as `<name>-compressed.pdf`. If the input file has no extension, `.pdf` is added.
 
 Three result fields deserve special attention:
 
@@ -140,7 +157,18 @@ await compress({
 });
 ```
 
-`options` is a partial override on top of the preset; anything you do not set comes from the preset. All 30 fields are in the [options reference](/options).
+`options` is a partial override on top of the preset; anything you do not set comes from the preset. Every field is in the [options reference](/options). Values out of range are clamped to the nearest allowed value, unknown values for a choice fall back to its default, and unknown fields are ignored, so a bad option never fails a run. `resolveOptions` shows exactly what will run.
+
+### Seeing what changed
+
+```js
+const r = await compress({ sourcePath: 'in.pdf', savePath: 'out.pdf', report: 'report.json' });
+for (const img of r.report.images) {
+  console.log(img.page, img.name, img.before.bytes, '->', img.after?.bytes);
+}
+```
+
+The [compression report](/report) lists every font, page image and cleanup, before and after.
 
 ## Errors
 
@@ -150,8 +178,10 @@ Everything throws `HyperError` with a typed `code`:
 |---|---|
 | `decrypt_failed` | wrong or missing password for an encrypted input |
 | `engine_error` | the engine could not process the document, or no engine binary exists for this platform |
-| `timeout` | a stage exceeded `timeoutMs` |
+| `timeout` | a stage exceeded `timeoutMs`, or the whole call exceeded `totalTimeoutMs` |
 | `cancelled` | the `AbortSignal` fired |
+
+`e.message` adds detail where there is any, for example the platform name when no binary exists. `engine_error` is also thrown when `sourcePath` is missing.
 
 ```js
 import { compress, HyperError } from 'hyper-compress';
@@ -173,7 +203,7 @@ The parser runs in a worker subprocess with a hard timeout, so a crash or hang o
 
 ```js
 import {
-  HYPER_PRESETS,         // the four presets as full option objects
+  HYPER_PRESETS,         // the four presets as full option objects, keyed low, medium, high, lossless
   normalizeHyperOptions, // clamp and complete a partial options object
   resolveOptions,        // the exact options a CompressInput will run with
   buildHyperTokens,      // the low-level engine tokens, for debugging
@@ -191,8 +221,11 @@ Fully typed, ships its own declarations, built with `exactOptionalPropertyTypes`
 import type {
   CompressInput, CompressResult, HyperCompressOptions,
   CompressLevel, HyperErrorCode, PdfaLevel,
+  HyperOptionDoc, HyperOptionGroup,
 } from 'hyper-compress';
 ```
+
+`PdfaLevel` is `{ part: number; conformance: string }`, for example `{ part: 2, conformance: 'b' }`. `conformance` is always lower case, and empty for levels without one, such as plain PDF/A-4. `HyperOptionDoc` is one entry of `HYPER_OPTION_DOCS`: `group`, `type` (`boolean`, `number` or `enum`), `values` for enums, `min` and `max` for numbers, `default` and `description`.
 
 ## Troubleshooting
 
@@ -202,4 +235,4 @@ import type {
 
 **`decrypt_failed` with what you believe is the right password.** Confirm with `verifyPassword` first; if that also returns false, the PDF may use an owner password different from the user password you have.
 
-**Everything works locally but fails in Docker or CI.** Check the container platform matches a supported one (`linux/amd64` has native binaries; `linux/arm64` needs the wasm package) and that Node inside the image is 22 or newer.
+**Everything works locally but fails in Docker or CI.** Check the container platform matches a supported one (`linux/amd64` and `linux/arm64` with glibc have native binaries; Alpine needs the wasm package) and that Node inside the image is 22 or newer.

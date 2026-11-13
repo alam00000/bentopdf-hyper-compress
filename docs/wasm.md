@@ -4,7 +4,7 @@
 npm install hyper-compress-wasm
 ```
 
-The engine compiled to WebAssembly: byte-identical output to the native build, no native binaries, no postinstall downloads. It runs on any platform Node 22 or newer runs, which makes it the answer whenever the native package cannot install: Intel Macs, ARM Linux, Alpine containers, FreeBSD.
+The engine compiled to WebAssembly: byte-identical output to the native build, no native binaries, no postinstall downloads. It runs on any platform Node 22 or newer runs, which makes it the answer whenever the native package cannot install: Intel Macs, Alpine containers, FreeBSD.
 
 
 ## A complete first program
@@ -47,7 +47,25 @@ interface HyperWasmResult {
 }
 ```
 
-The [guarantees](/guarantees) are identical to the native package: output never larger than input, signed documents untouched, PDF/A never left lying, and a size target searched to the engine's floor with the smallest achievable file returned on a miss. The [options](/options) are the same 30 fields. Errors are thrown as `HyperError` with `code` `decrypt_failed` (wrong or missing password) or `engine_error` (anything else).
+The [guarantees](/guarantees) are identical to the native package: output never larger than input, signed documents untouched, PDF/A never left lying, and a size target searched to the engine's floor with the smallest achievable file returned on a miss. The [options](/options) are the same. Errors are thrown as `HyperError` with `code` `decrypt_failed` (wrong or missing password) or `engine_error` (anything else, including a module that failed to load).
+
+`pdfaOutcome` tells you what happened to a PDF/A input:
+
+| Value | Meaning |
+|---|---|
+| `none` | the input does not claim PDF/A |
+| `preserved` | the output still meets the input's PDF/A level, because `preserveConformance` was on, the file is signed, or the original was returned |
+| `claim-withdrawn` | the output was changed without `preserveConformance`, so its PDF/A claim was removed from the metadata |
+
+### What the WebAssembly build does not do
+
+Compared with the [native SDK](/node-sdk), three things are missing:
+
+- `linearize` is ignored, with the warning `linearize is not available in the WebAssembly build`.
+- There is no [compression report](/report).
+- There is no cancellation and no timeout; see below.
+
+The full comparison is on [platforms and surfaces](/platforms#what-each-surface-can-do).
 
 ## verifyPassword(input, password)
 
@@ -57,7 +75,35 @@ import { verifyPassword } from 'hyper-compress-wasm';
 const ok = await verifyPassword(bytes, 'hunter2');
 ```
 
-Returns a `Promise<boolean>` without compressing. `true` means `compress()` will accept the same password.
+Returns a `Promise<boolean>` without compressing. `true` means `compress()` will accept the same password. An unencrypted PDF returns `true` for any password.
+
+## Loading the module yourself
+
+The default exports load the bundled module the first time you call them. When you host the engine files yourself, as a browser build does, use `createEngine` with your own copy of `engine/hyper-compress.js`. This is what [`web/worker.js`](https://github.com/alam00000/bentopdf-hyper-compress/blob/main/web/worker.js) does:
+
+```js
+import createModule from './engine/hyper-compress.js';   // copied from the package
+import { createEngine } from './lib/wasm/sdk.js';       // copied from the package
+
+const engine = createEngine(() => createModule());
+await engine.init();                       // load now instead of on first use
+const result = await engine.compress(bytes, { preset: 'high' });
+```
+
+`createEngine(load)` takes a function that returns the module and gives back `{ init, compress, verifyPassword }`. The module loads once and is shared by every call on that engine; if loading fails, the next call tries again.
+
+## Other exports
+
+```js
+import {
+  HYPER_PRESETS,         // the four presets as full option objects
+  normalizeHyperOptions, // clamp and complete a partial options object
+  buildHyperTokens,      // the low-level engine tokens, for debugging
+  HyperError,
+} from 'hyper-compress-wasm';
+```
+
+Types: `HyperWasmEngine`, `HyperWasmModule`, `HyperWasmOptions`, `HyperWasmResult`, `HyperCompressOptions`, `CompressLevel`, `PdfaLevel` and `HyperErrorCode`.
 
 ## Blocking, and how to avoid it
 

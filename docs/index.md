@@ -25,7 +25,7 @@ features:
   - title: Content preserving
     details: Your text stays searchable, signatures remain valid, and PDF/A files stay conformant. True lossless mode compresses your PDF without changing its content..
   - title: Reliability you can measure
-    details: Tested across 27,352 runs against Ghostscript, MuPDF and qpdf, with the lowest corruption rate of any engine we measured.
+    details: On 1,000 real PDFs it beat the PDF Tools, Apryse and Nutrient SDKs at every level, with 0 failures in 4,000 runs. Against Ghostscript, MuPDF and qpdf it had the lowest corruption rate of any engine we measured.
   - title: Built to run everywhere
     details: The same Hyper engine powers the CLI, Node SDK, browser, self-hosted service, and C API.
 ---
@@ -48,3 +48,5 @@ On our benchmark suite, the median document shrinks by 58% at the default preset
 | Compress PDFs in the browser | the [WebAssembly package](/wasm) |
 | Run a compression service for your team | the [self-hosted Docker image](/self-hosting) |
 | Embed the engine in another language | the [C API](/c-api) |
+
+Not sure which one runs on your platform? See [platforms and surfaces](/platforms).

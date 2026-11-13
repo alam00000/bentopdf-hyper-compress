@@ -1,6 +1,6 @@
 # Getting Started
 
-Hyper Compress can be used in a few different ways, but the engine underneath is always the same. Whether you're using the CLI, Node SDK, WebAssembly build, or something else, you'll get the same presets, the same [30 options](/options), and the same result from the same settings.
+Hyper Compress can be used in a few different ways, but the engine underneath is always the same. Whether you're using the CLI, Node SDK, WebAssembly build, or something else, you'll get the same presets, the same [options](/options), and the same result from the same settings.
 
 Pick the way you want to use Hyper, and this guide will help you compress your first PDF.
 
@@ -27,7 +27,7 @@ node --version
 
 If that prints `v22.0.0` or higher you are ready. If it prints something lower, or `command not found`, install the current LTS from [nodejs.org](https://nodejs.org) and open a new terminal.
 
-Supported platforms for the native engine: macOS on Apple silicon, Linux x64, Windows x64. On anything else (an Intel Mac, a Raspberry Pi), use the [WebAssembly package](/wasm) instead.
+Supported platforms for the native engine: macOS on Apple silicon, Linux x64, Linux ARM64, Windows x64. On anything else (an Intel Mac, Alpine Linux), use the [WebAssembly package](/wasm) instead. The full list is on [platforms and surfaces](/platforms).
 
 ### Install and run
 
@@ -96,7 +96,7 @@ Every surface uses the same four presets. Pick by what the document is for:
 | `high` | 20 | 72 | smallest output and screen reading |
 | `lossless` | off | off | no image re-encoding, pixel-identical images |
 
-A preset is just a complete options object; start from one and override any field. The [options reference](/options) lists all 30 options and exactly what each preset sets.
+A preset is just a complete options object; start from one and override any field. The [options reference](/options) lists every option and exactly what each preset sets.
 
 ## Three things to know before you start
 
@@ -115,4 +115,6 @@ The full behavioral contract is on the [guarantees](/guarantees) page.
 - Running without native binaries: [WebAssembly](/wasm)
 - Your own service: [Self-Hosting](/self-hosting) and the [HTTP API](/http-api)
 - Every option with defaults and ranges: [Options reference](/options)
-- What was measured against Ghostscript, MuPDF and qpdf: [Benchmarks](/benchmarks)
+- What changed inside a file: [Compression report](/report)
+- Which surface runs where and does what: [Platforms and surfaces](/platforms)
+- What was measured against PDF Tools, Apryse, Nutrient, Ghostscript, MuPDF and qpdf: [Benchmarks](/benchmarks)

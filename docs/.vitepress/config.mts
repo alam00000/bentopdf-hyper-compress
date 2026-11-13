@@ -34,6 +34,7 @@ export default defineConfig({
                 items: [
                     { text: 'What is Hyper Compress', link: '/' },
                     { text: 'Getting Started', link: '/getting-started' },
+                    { text: 'Platforms and surfaces', link: '/platforms' },
                     { text: 'Guarantees', link: '/guarantees' },
                     { text: 'Benchmarks', link: '/benchmarks' }
                 ]
@@ -46,7 +47,8 @@ export default defineConfig({
                     { text: 'WebAssembly', link: '/wasm' },
                     { text: 'HTTP API', link: '/http-api' },
                     { text: 'C API', link: '/c-api' },
-                    { text: 'Options reference', link: '/options' }
+                    { text: 'Options reference', link: '/options' },
+                    { text: 'Compression report', link: '/report' }
                 ]
             },
             {

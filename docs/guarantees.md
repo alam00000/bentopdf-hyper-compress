@@ -41,6 +41,28 @@ Two things Hyper will not do to hit a number: it will not silently change what k
 
 Whenever the engine does less than you asked for instead of doing something unsafe, the result's `warnings` array says so and why: a rasterize request skipped over a text layer, or rasterize and Brotli dropped to preserve PDF/A. An empty array means every requested option was applied. Hard failures are typed errors (`decrypt_failed`, `engine_error`, `timeout`, `cancelled`), never silent fallbacks.
 
+## Every warning
+
+These are all the warnings Hyper can return. Numbers and option values in angle brackets are filled in for the actual run.
+
+| Warning | When |
+|---|---|
+| `rasterize skipped: document has a text layer` | `rasterizePages` was set but a page has text; set `rasterizeText` to rasterize anyway |
+| `rasterizePages disabled to preserve PDF/A conformance` | `rasterizePages` with `preserveConformance` on a PDF/A input |
+| `brotli disabled to preserve PDF/A conformance` | `brotli` with `preserveConformance` on a PDF/A input |
+| `removeMetadata refused: PDF/A requires the XMP metadata packet` | `removeMetadata` with `preserveConformance` on a PDF/A input |
+| `colorTarget ignored to preserve PDF/A conformance` | `colorTarget` with `preserveConformance` on a PDF/A input |
+| `linearize skipped to preserve PDF/A conformance` | `linearize` with `preserveConformance` on a PDF/A input |
+| `minVersion <version> refused: this PDF/A level requires a 1.x header` | `minVersion` 2.0 with `preserveConformance` on a PDF/A-1, 2 or 3 input |
+| `colorTarget <target> not applied: the converted file was not smaller than the original, so the original was kept` | the colour conversion made the file bigger |
+| `linearize not applied: the optimized file was not smaller than the original, so the original was kept` | compression could not make the file smaller, so there was nothing to linearize |
+| `linearize is not available in the WebAssembly build` | `linearize` in the WebAssembly build |
+| `target of <n> bytes not reached: <m> bytes is the smallest this document compresses to at quality 5 and 36 dpi. For image-only documents, rasterizePages can go further.` | a size target could not be met |
+| `digital signatures removed so the document could be compressed` | `removeSignatures` on a signed input, and the output was used |
+| `report unavailable: the PDF structure could not be read` | a report was requested but could not be built |
+
+While `preserveConformance` is on for a PDF/A input, these options are also switched off, without a warning, because they would break the standard: `removeStandardFonts`, `unembedAliasedFonts`, `removeOutputIntents` and `flattenIcc` for every level; `preferJpx` and `subsetFonts` for PDF/A-1; and `removeStructTree` for level A documents.
+
 ## Hostile input is contained
 
 Malformed PDFs can crash or hang software. Hyper isolates parsing so a bad file doesn't take down your application or service.

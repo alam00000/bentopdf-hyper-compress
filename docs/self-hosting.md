@@ -4,7 +4,7 @@ Run the whole thing on your own hardware: the web interface, the [HTTP API](/htt
 
 ## What you need
 
-Docker. If `docker --version` prints a version, you are ready; otherwise install [Docker Engine](https://docs.docker.com/engine/install/) (Linux) or [Docker Desktop](https://docs.docker.com/desktop/) (macOS, Windows). The published image is `linux/amd64`.
+Docker. If `docker --version` prints a version, you are ready; otherwise install [Docker Engine](https://docs.docker.com/engine/install/) (Linux) or [Docker Desktop](https://docs.docker.com/desktop/) (macOS, Windows). The published image runs on `linux/amd64` and `linux/arm64`; Docker picks the right one for your machine, including Apple silicon Macs and ARM servers such as AWS Graviton.
 
 ## Start it
 
@@ -21,7 +21,7 @@ Or with compose, using the `docker-compose.yml` from the repository:
 docker compose up -d
 ```
 
-Images are published to GHCR on every release, tagged with the version (`v0.1.0`) and `latest`. Pin the version tag in production.
+Images are published to GHCR on every release, tagged with the version (for example `v1.1.4`) and `latest`. Pin the version tag in production.
 
 ## Configuration
 
@@ -35,13 +35,27 @@ Set these with `-e` flags or in your compose file:
 | `HYPER_CONCURRENCY` | 2 | parallel compression jobs |
 | `HYPER_QUEUE` | 8 | jobs allowed to wait before new ones get 429 |
 | `HYPER_TIMEOUT_MS` | 600000 | total per-request timeout across all stages (10 minutes) |
-| `HYPER_API_TOKEN` | (unset) | when set, `/api/*` requires `Authorization: Bearer <token>` (or `x-api-token`); unauthenticated otherwise |
+| `HYPER_API_TOKEN` | (unset) | when set, `/api/*` requires `Authorization: Bearer <token>` (or `x-api-token`); unauthenticated otherwise. See [authentication](/http-api#authentication). |
 
-Each job is a separate engine process, so size `HYPER_CONCURRENCY` to your cores and memory: 2 is right for a small VPS, 4 to 8 for a real server.
+Numbers outside the allowed range are clamped and a value that is not a number falls back to the default. Allowed ranges: `HYPER_PORT` 1 to 65535, `HYPER_MAX_UPLOAD_MB` from 1, `HYPER_CONCURRENCY` 1 to 1024, `HYPER_QUEUE` 0 to 100,000 (0 means no waiting: anything beyond the running jobs gets 429), `HYPER_TIMEOUT_MS` 1 second to 24 hours.
+
+On start the server logs its address, concurrency and upload limit.
+
+## Sizing
+
+Each job is a separate engine process, and inside one job the engine uses up to 8 threads for image work. Size `HYPER_CONCURRENCY` to your cores and memory: 2 is right for a small VPS, 4 to 8 for a real server. Memory per job grows with the largest images in the document, so give large scans more headroom.
+
+For a sense of speed: in the [commercial SDK benchmark](/benchmarks#against-commercial-sdks), 1,000 real PDFs averaging 3 MB each ran 4 at a time on an Apple M4 laptop with 16 GB of memory. The median file took 0.15 seconds lossless and 0.21 to 0.33 seconds at the lossy presets, including starting the process, and the whole set took 8 minutes lossless and 14.5 to 21 minutes lossy. Times on your hardware and documents will differ, so measure with your own files.
+
+To scale out, run more containers behind a load balancer. They share nothing, so any request can go to any container.
+
+## Temporary files
+
+Each request writes its input and output to a fresh folder under the container's temporary directory and deletes it when the response is sent. Nothing is kept between requests and nothing is logged about the documents. Give `/tmp` room for a few times your largest upload per running job.
 
 ## Put TLS in front
 
-The container speaks plain HTTP and does no authentication, which is the standard contract for a service container: terminate TLS at a reverse proxy. With [Caddy](https://caddyserver.com), the entire config is:
+The container speaks plain HTTP, which is the standard contract for a service container: terminate TLS at a reverse proxy. Its only authentication is the optional `HYPER_API_TOKEN`. With [Caddy](https://caddyserver.com), the entire config is:
 
 ```
 compress.example.com {
@@ -68,7 +82,7 @@ The container is stateless; nothing needs migrating.
 
 ## CLI mode
 
-The same image doubles as the CLI: pass arguments and it compresses instead of serving.
+The same image doubles as the CLI: pass arguments and it compresses instead of serving. Every [CLI flag](/cli) works, and paths are relative to `/work`, the folder you mount.
 
 ```bash
 docker run --rm -v "$PWD":/work ghcr.io/alam00000/bentopdf-hyper-compress:latest \
@@ -80,6 +94,10 @@ docker run --rm -v "$PWD":/work ghcr.io/alam00000/bentopdf-hyper-compress:latest
 **`port is already allocated`.** Something else owns 8080. Map another host port: `-p 9090:8080`, then use `localhost:9090`.
 
 **Requests return 429.** The queue is full. Raise `HYPER_QUEUE` for burst tolerance or `HYPER_CONCURRENCY` for throughput, and check `/healthz` to see the live numbers.
+
+**Requests return 401.** `HYPER_API_TOKEN` is set. Send the token, see [authentication](/http-api#authentication).
+
+**Requests return 413.** The upload is over `HYPER_MAX_UPLOAD_MB`. Raise it, up to the engine's 2 GB limit.
 
 **Requests return 504.** A job hit the timeout, usually an enormous scan at high settings. Raise `HYPER_TIMEOUT_MS`.
 

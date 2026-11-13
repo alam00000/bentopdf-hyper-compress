@@ -10,7 +10,7 @@ Full documentation lives at [hyper.bentopdf.com/docs](https://hyper.bentopdf.com
 npm install hyper-compress
 ```
 
-Node 22 or newer, ESM only. The native engine binaries arrive automatically through a platform package (`hyper-compress-darwin-arm64`, `-linux-x64` or `-win32-x64`); npm installs the one matching your machine. To use binaries you built yourself, set `HYPER_DRV` (worker) and `HYPER_QPDF` (qpdf) to their paths and they take precedence.
+Node 22 or newer, ESM only. The native engine binaries arrive automatically through a platform package (`hyper-compress-darwin-arm64`, `-linux-x64`, `-linux-arm64` or `-win32-x64`); npm installs the one matching your machine. To use binaries you built yourself, set `HYPER_DRV` (worker) and `HYPER_QPDF` (qpdf) to their paths and they take precedence.
 
 On platforms without a native package, or when you cannot ship native binaries at all, use [`hyper-compress-wasm`](https://www.npmjs.com/package/hyper-compress-wasm) instead: the same engine compiled to WebAssembly, producing identical output about 4x slower, with a buffer-based API that runs anywhere Node runs.
 
