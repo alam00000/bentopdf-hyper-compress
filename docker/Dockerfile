@@ -23,8 +23,8 @@ RUN mkdir -p core/build/gsrc && cd core/build/gsrc \
     && PIN="$(grep '^PDFIUM_PIN=' ../apply-tree.sh | cut -d= -f2)" \
     && if [ "$(dpkg --print-architecture)" = arm64 ]; then \
       GN="$(curl -fsSL "https://pdfium.googlesource.com/pdfium/+/$PIN/DEPS?format=TEXT" | base64 -d | grep -o "'gn_version': '[^']*'" | cut -d"'" -f4)" \
-      && gclient config --unmanaged https://pdfium.googlesource.com/pdfium.git \
-        --custom-var=reclient_package=gn/gn/ --custom-var="reclient_version=$GN"; \
+      && printf '%s\n' 'solutions = [{"name": "pdfium", "url": "https://pdfium.googlesource.com/pdfium.git", "managed": False,' \
+        "  \"custom_vars\": {\"reclient_package\": \"gn/gn/\", \"reclient_version\": \"$GN\"}}]" > .gclient; \
     else \
       gclient config --unmanaged https://pdfium.googlesource.com/pdfium.git; \
     fi \
