@@ -220,6 +220,15 @@ jobs:
               "$JP/jpegli-static.lib" "$JP/hwy.lib" \
               user32.lib gdi32.lib advapi32.lib shell32.lib ole32.lib ws2_32.lib
           done
+      - name: bundle qpdf
+        shell: bash
+        run: |
+          QPDF_VERSION=12.3.2
+          QPDF_SHA256=8941870a604e7c87ed24566b038d46c24ce76616254d2383c578f60c0677f202
+          curl -sL -o qpdf.zip "https://github.com/qpdf/qpdf/releases/download/v$QPDF_VERSION/qpdf-$QPDF_VERSION-msvc64.zip"
+          echo "$QPDF_SHA256  qpdf.zip" | sha256sum -c -
+          /c/Windows/System32/tar.exe -xf qpdf.zip
+          cp "qpdf-$QPDF_VERSION-msvc64/bin/qpdf.exe" "qpdf-$QPDF_VERSION-msvc64/bin/"*.dll cli/prebuilt/
       - uses: dtolnay/rust-toolchain@stable
       - name: build rust addon
         shell: bash
