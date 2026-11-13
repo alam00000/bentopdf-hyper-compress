@@ -31,6 +31,10 @@ RUN mkdir -p core/build/gsrc && cd core/build/gsrc \
     && gclient sync --revision "pdfium@$PIN" -D --no-history
 COPY . .
 RUN docker/build-jpegli-linux.sh && docker/build-linux.sh
+RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal \
+    && . "$HOME/.cargo/env" \
+    && cargo build --release --locked -p hyper-compress-node --manifest-path rust/Cargo.toml \
+    && cp rust/target/release/libhyper_compress_node.so cli/prebuilt/hyper-compress.node
 
 FROM node:22-slim AS app
 WORKDIR /engine
@@ -57,7 +61,7 @@ COPY web/index.html web/options-ui.js web/app.js web/app.css web/engine-http.js 
 COPY web/fonts web/fonts
 COPY web/icons web/icons
 COPY docker/entrypoint.sh /entrypoint.sh
-COPY --from=native /engine/cli/prebuilt/hpdf-worker /engine/cli/prebuilt/hpdf-render cli/prebuilt/
+COPY --from=native /engine/cli/prebuilt/hpdf-worker /engine/cli/prebuilt/hpdf-render /engine/cli/prebuilt/hyper-compress.node cli/prebuilt/
 ENV HYPER_QPDF=/usr/bin/qpdf
 USER node
 EXPOSE 8080

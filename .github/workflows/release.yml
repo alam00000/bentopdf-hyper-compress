@@ -27,6 +27,15 @@ jobs:
           core/build/apply-tree.sh
           core/build/build-native.sh
           sdk/native/build-dylib.sh
+      - uses: dtolnay/rust-toolchain@stable
+      - name: build rust addon
+        shell: bash
+        run: |
+          cargo build --release --locked -p hyper-compress-node --manifest-path rust/Cargo.toml
+          for f in libhyper_compress_node.dylib libhyper_compress_node.so hyper_compress_node.dll; do
+            if [ -f "rust/target/release/$f" ]; then cp "rust/target/release/$f" cli/prebuilt/hyper-compress.node; fi
+          done
+          test -f cli/prebuilt/hyper-compress.node
       - name: harden
         run: scripts/harden.sh
       - name: build wasm
@@ -41,7 +50,7 @@ jobs:
         run: |
           mkdir -p out
           tar -C cli/prebuilt -czf "out/hyper-compress-${GITHUB_REF_NAME}-macos-arm64.tar.gz" \
-            hpdf-worker hpdf-render qpdf
+            hpdf-worker hpdf-render qpdf hyper-compress.node
           tar -C sdk/native/lib -czf "out/libhypercompress-${GITHUB_REF_NAME}-macos-arm64.tar.gz" \
             libhypercompress.dylib
           tar -C wasm/out -czf "out/hyper-compress-${GITHUB_REF_NAME}-wasm.tar.gz" \
@@ -103,11 +112,20 @@ jobs:
           docker/build-linux.sh
       - name: build qpdf
         run: cli/build-qpdf.sh
+      - uses: dtolnay/rust-toolchain@stable
+      - name: build rust addon
+        shell: bash
+        run: |
+          cargo build --release --locked -p hyper-compress-node --manifest-path rust/Cargo.toml
+          for f in libhyper_compress_node.dylib libhyper_compress_node.so hyper_compress_node.dll; do
+            if [ -f "rust/target/release/$f" ]; then cp "rust/target/release/$f" cli/prebuilt/hyper-compress.node; fi
+          done
+          test -f cli/prebuilt/hyper-compress.node
       - name: package
         run: |
           mkdir -p out
           tar -C cli/prebuilt -czf "out/hyper-compress-${GITHUB_REF_NAME}-linux-${{ matrix.arch }}.tar.gz" \
-            hpdf-worker hpdf-render qpdf
+            hpdf-worker hpdf-render qpdf hyper-compress.node
       - uses: actions/upload-artifact@v7
         with:
           name: linux-${{ matrix.arch }}
@@ -200,12 +218,21 @@ jobs:
           echo "$QPDF_SHA256  qpdf.zip" | sha256sum -c -
           /c/Windows/System32/tar.exe -xf qpdf.zip
           cp "qpdf-$QPDF_VERSION-msvc64/bin/qpdf.exe" "qpdf-$QPDF_VERSION-msvc64/bin/"*.dll cli/prebuilt/
+      - uses: dtolnay/rust-toolchain@stable
+      - name: build rust addon
+        shell: bash
+        run: |
+          cargo build --release --locked -p hyper-compress-node --manifest-path rust/Cargo.toml
+          for f in libhyper_compress_node.dylib libhyper_compress_node.so hyper_compress_node.dll; do
+            if [ -f "rust/target/release/$f" ]; then cp "rust/target/release/$f" cli/prebuilt/hyper-compress.node; fi
+          done
+          test -f cli/prebuilt/hyper-compress.node
       - name: package
         shell: bash
         run: |
           mkdir -p out
           tar -C cli/prebuilt -czf "out/hyper-compress-${GITHUB_REF_NAME}-windows-x64.tar.gz" \
-            hpdf-worker.exe hpdf-render.exe qpdf.exe qpdf30.dll concrt140.dll \
+            hpdf-worker.exe hpdf-render.exe qpdf.exe hyper-compress.node qpdf30.dll concrt140.dll \
             msvcp140.dll msvcp140_1.dll msvcp140_2.dll msvcp140_atomic_wait.dll \
             msvcp140_codecvt_ids.dll vcruntime140.dll vcruntime140_1.dll
       - uses: actions/upload-artifact@v7

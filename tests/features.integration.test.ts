@@ -121,6 +121,24 @@ test('removeMetadata is refused with a warning while preserving PDF/A', opts, as
   assert.ok(has(expandPdf(output), 'pdfaid:part'));
 });
 
+test('a compressed PDF/A input without preserveConformance loses its PDF/A claim', opts, async () => {
+  const { result, output } = await run(pdfaPdf('BT /F1 24 Tf 40 700 Td (Archive) Tj ET\n'.repeat(3000)), {
+    preset: 'medium',
+  });
+  assert.ok(result.compressedSize < result.originalSize);
+  assert.equal(result.pdfaPreserved, false);
+  assert.deepEqual(result.pdfa, { part: 2, conformance: 'b' });
+  const expanded = expandPdf(output);
+  assert.ok(!has(expanded, 'pdfaid:part'));
+  assert.ok(has(expanded, 'x:xmpmeta'));
+});
+
+test('a PDF/A input returned unchanged keeps its valid claim', opts, async () => {
+  const { result } = await run(pdfaPdf(), { preset: 'medium' });
+  assert.equal(result.compressedSize, result.originalSize);
+  assert.equal(result.pdfaPreserved, true);
+});
+
 test('removeBookmarks, removeAttachments and removePrintSettings clean the catalog', opts, async () => {
   const { expanded } = await run(featurePdf(), {
     preset: 'medium',

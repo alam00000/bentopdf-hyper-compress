@@ -163,7 +163,7 @@ export function signedPdf(stream = 'BT /F1 24 Tf 40 700 Td (Signed) Tj ET'): Uin
   );
 }
 
-export function pdfaPdf(): Uint8Array {
+export function pdfaPdf(stream = 'BT /F1 24 Tf 40 700 Td (Archive) Tj ET'): Uint8Array {
   const xmp =
     '<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>' +
     '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF ' +
@@ -171,7 +171,6 @@ export function pdfaPdf(): Uint8Array {
     '<rdf:Description xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/" ' +
     'pdfaid:part="2" pdfaid:conformance="B"/></rdf:RDF></x:xmpmeta>' +
     '<?xpacket end="w"?>';
-  const stream = 'BT /F1 24 Tf 40 700 Td (Archive) Tj ET';
   return buildPdf(
     [
       '<< /Type /Catalog /Pages 2 0 R /Metadata 6 0 R >>',

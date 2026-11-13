@@ -13,3 +13,4 @@ docker/build-work
 bench/RESULTS.csv
 bench/MANIFEST.csv
 tests/regression/failset
+rust/target

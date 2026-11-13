@@ -25,6 +25,15 @@ jobs:
           core/build/apply-tree.sh
           core/build/build-native.sh
           sdk/native/build-dylib.sh
+      - uses: dtolnay/rust-toolchain@stable
+      - name: build rust addon
+        shell: bash
+        run: |
+          cargo build --release --locked -p hyper-compress-node --manifest-path rust/Cargo.toml
+          for f in libhyper_compress_node.dylib libhyper_compress_node.so hyper_compress_node.dll; do
+            if [ -f "rust/target/release/$f" ]; then cp "rust/target/release/$f" cli/prebuilt/hyper-compress.node; fi
+          done
+          test -f cli/prebuilt/hyper-compress.node
       - name: verify binaries
         run: |
           ls -la cli/prebuilt/hpdf-worker cli/prebuilt/hpdf-render sdk/native/lib/libhypercompress.dylib
@@ -100,6 +109,15 @@ jobs:
         run: |
           docker/build-jpegli-linux.sh
           docker/build-linux.sh
+      - uses: dtolnay/rust-toolchain@stable
+      - name: build rust addon
+        shell: bash
+        run: |
+          cargo build --release --locked -p hyper-compress-node --manifest-path rust/Cargo.toml
+          for f in libhyper_compress_node.dylib libhyper_compress_node.so hyper_compress_node.dll; do
+            if [ -f "rust/target/release/$f" ]; then cp "rust/target/release/$f" cli/prebuilt/hyper-compress.node; fi
+          done
+          test -f cli/prebuilt/hyper-compress.node
       - name: verify binaries
         run: |
           ls -la cli/prebuilt/hpdf-worker cli/prebuilt/hpdf-render
@@ -184,6 +202,15 @@ jobs:
               "$JP/jpegli-static.lib" "$JP/hwy.lib" \
               user32.lib gdi32.lib advapi32.lib shell32.lib ole32.lib ws2_32.lib
           done
+      - uses: dtolnay/rust-toolchain@stable
+      - name: build rust addon
+        shell: bash
+        run: |
+          cargo build --release --locked -p hyper-compress-node --manifest-path rust/Cargo.toml
+          for f in libhyper_compress_node.dylib libhyper_compress_node.so hyper_compress_node.dll; do
+            if [ -f "rust/target/release/$f" ]; then cp "rust/target/release/$f" cli/prebuilt/hyper-compress.node; fi
+          done
+          test -f cli/prebuilt/hyper-compress.node
       - name: verify binaries
         shell: bash
         run: |

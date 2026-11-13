@@ -37,3 +37,5 @@ docs/.vitepress/cache/
 docs/.vitepress/dist/
 .DS_Store
 core/build/llvm-shim/
+rust/target/
+cli/prebuilt/hyper-compress.node

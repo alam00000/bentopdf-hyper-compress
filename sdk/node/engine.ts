@@ -1,28 +1,19 @@
-import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { buildHyperTokens, normalizeHyperOptions, type HyperCompressOptions } from './options.js';
+import { normalizeHyperOptions, type HyperCompressOptions } from './options.js';
 import { HYPER_PRESETS, type CompressLevel } from './presets.js';
-
-import { HyperError } from './errors.js';
-import {
-  conformanceSafeOptions, conformanceWarnings, detectPdfaInBytes, packAllowedWhilePreserving,
-  raiseHeaderVersion, restoreHeaderVersion, type PdfaLevel,
-} from './pdfa.js';
-import { buildReport, parseImageNotes, type HyperReport, type QpdfJson } from './report.js';
-import {
-  TARGET_QUALITY_FLOOR, TARGET_QUALITY_STEPS, targetLadder, targetMissWarning,
-  targetStartQuality,
-} from './target.js';
+import { HyperError, type HyperErrorCode } from './errors.js';
+import type { PdfaLevel } from './pdfa.js';
+import type { HyperReport } from './report.js';
 
 export { HyperError, type HyperErrorCode } from './errors.js';
 export type { HyperReport } from './report.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const EXE = process.platform === 'win32' ? '.exe' : '';
+const ADDON = 'hyper-compress.node';
 
 function findPrebuilt(): string | null {
   let dir = HERE;
@@ -41,39 +32,73 @@ const PREBUILT = findPrebuilt();
 const requireFromHere = createRequire(import.meta.url);
 const packageBinCache = new Map<string, string | null>();
 
-function platformPackageBin(name: string): string | null {
-  const cached = packageBinCache.get(name);
+function platformPackageBin(file: string): string | null {
+  const cached = packageBinCache.get(file);
   if (cached !== undefined) return cached;
   const pkg = `hyper-compress-${process.platform}-${process.arch}`;
   let bin: string | null;
   try {
     const dir = path.dirname(requireFromHere.resolve(`${pkg}/package.json`));
-    const candidate = path.join(dir, 'bin', name + EXE);
+    const candidate = path.join(dir, 'bin', file);
     bin = fs.existsSync(candidate) ? candidate : null;
   } catch {
     bin = null;
   }
-  packageBinCache.set(name, bin);
+  packageBinCache.set(file, bin);
   return bin;
 }
 
-function tryResolveBin(envVar: string, name: string): string | null {
+function tryResolve(envVar: string, file: string): string | null {
   const fromEnv = process.env[envVar];
   if (fromEnv) return fromEnv;
   if (PREBUILT) {
-    const local = path.join(PREBUILT, name + EXE);
+    const local = path.join(PREBUILT, file);
     if (fs.existsSync(local)) return local;
   }
-  return platformPackageBin(name);
+  return platformPackageBin(file);
 }
 
-function requireBin(envVar: string, name: string): string {
-  const bin = tryResolveBin(envVar, name);
-  if (bin) return bin;
-  throw new HyperError(
+function missing(name: string, envVar: string): HyperError {
+  return new HyperError(
     'engine_error',
-    `no ${name} binary for ${process.platform}-${process.arch}: use a platform with a native package (darwin-arm64, linux-x64, win32-x64), set ${envVar} to a binary you built (see BUILDING.md), or switch to the hyper-compress-wasm package`,
+    `no ${name} binary for ${process.platform}-${process.arch}: use a platform with a native package (darwin-arm64, linux-x64, linux-arm64, win32-x64), set ${envVar} to a binary you built (see BUILDING.md), or switch to the hyper-compress-wasm package`,
   );
+}
+
+interface CancelHandle {
+  cancel(): void;
+}
+
+interface NativeAddon {
+  compressNative(input: object, cancel?: CancelHandle): Promise<string>;
+  verifyPasswordNative(input: object): Promise<string>;
+  resolveOptionsNative(preset: string | null | undefined, options: object | null | undefined): HyperCompressOptions;
+  buildTokensNative(options: object): string[];
+  engineVersion(): string;
+  CancelHandle: new () => CancelHandle;
+}
+
+let addon: NativeAddon | null = null;
+
+export function loadNative(): NativeAddon {
+  if (addon) return addon;
+  const besideWorker = process.env.HYPER_DRV ? path.join(path.dirname(process.env.HYPER_DRV), ADDON) : null;
+  const file = process.env.HYPER_ADDON ||
+    (besideWorker && fs.existsSync(besideWorker) ? besideWorker : null) ||
+    tryResolve('HYPER_ADDON', ADDON);
+  if (!file) throw missing(ADDON, 'HYPER_ADDON');
+  addon = requireFromHere(file) as NativeAddon;
+  return addon;
+}
+
+function binaries(): { worker: string | null; qpdf: string | null } {
+  return { worker: tryResolve('HYPER_DRV', 'hpdf-worker' + EXE), qpdf: tryResolve('HYPER_QPDF', 'qpdf' + EXE) };
+}
+
+function unwrap<T>(raw: string): T {
+  const parsed = JSON.parse(raw) as { result?: T; error?: { code: HyperErrorCode; message: string } };
+  if (parsed.error) throw new HyperError(parsed.error.code, parsed.error.message);
+  return parsed.result as T;
 }
 
 export interface CompressInput {
@@ -102,449 +127,54 @@ export interface CompressResult {
   report?: HyperReport | undefined;
 }
 
-interface StageLimits {
-  signal?: AbortSignal | undefined;
-  timeoutMs: number;
-}
-
-const DEFAULT_STAGE_TIMEOUT_MS = 600_000;
-
-function stageSpawnOpts(limits?: StageLimits): {
-  signal?: AbortSignal;
-  timeout?: number;
-  killSignal: 'SIGKILL';
-} {
-  return {
-    ...(limits?.signal ? { signal: limits.signal } : {}),
-    timeout: limits?.timeoutMs ?? DEFAULT_STAGE_TIMEOUT_MS,
-    killSignal: 'SIGKILL',
-  };
-}
-
-function throwIfAborted(signal: AbortSignal | undefined): void {
-  if (signal?.aborted) {
-    const reason: unknown = signal.reason;
-    throw reason instanceof HyperError ? reason : new HyperError('cancelled');
-  }
-}
-
-function safeArgPath(p: string): string {
-  return path.resolve(p);
-}
-
-function driverPath(): string {
-  return requireBin('HYPER_DRV', 'hpdf-worker');
-}
-
-async function readSourceInfo(sourcePath: string): Promise<{ size: number; claimed: PdfaLevel | null }> {
-  const bytes = await fs.promises.readFile(sourcePath);
-  return { size: bytes.length, claimed: detectPdfaInBytes(bytes) };
-}
-
-async function statSize(p: string): Promise<number> {
-  try {
-    return (await fs.promises.stat(p)).size;
-  } catch {
-    return 0;
-  }
-}
-
-function runDriver(
-  inPath: string,
-  outPath: string,
-  tokens: string[],
-  limits?: StageLimits,
-): Promise<{
-  ok: boolean;
-  signed: boolean;
-  signaturesRemoved: boolean;
-  note: string | null;
-  stderr: string;
-}> {
-  return new Promise((resolve) => {
-    const child = spawn(driverPath(), [safeArgPath(inPath), safeArgPath(outPath), ...tokens], {
-      stdio: ['ignore', 'ignore', 'pipe'],
-      ...stageSpawnOpts(limits),
-    });
-    let stderr = '';
-    child.stderr?.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString();
-    });
-    child.on('error', () =>
-      resolve({ ok: false, signed: false, signaturesRemoved: false, note: null, stderr }));
-    child.on('close', (code) => {
-      const signed = /SIGNED_SKIP/.test(stderr);
-      const signaturesRemoved = /SIGNATURES_REMOVED/.test(stderr);
-      const note = stderr.match(/\[hyper\] (rasterize skipped:[^\r\n]*)/)?.[1] ?? null;
-      resolve({ ok: code === 0, signed, signaturesRemoved, note, stderr });
-    });
-  });
-}
-
-function runQpdf(args: string[], limits?: StageLimits): Promise<boolean> {
-  const bin = tryResolveBin('HYPER_QPDF', 'qpdf');
-  if (!bin) return Promise.resolve(false);
-  return new Promise((resolve) => {
-    const child = spawn(bin, args, { stdio: ['ignore', 'ignore', 'ignore'], ...stageSpawnOpts(limits) });
-    child.on('error', () => resolve(false));
-    child.on('close', (code) => resolve(code === 0));
-  });
-}
-
-function runQpdfJson(inPath: string, limits?: StageLimits): Promise<QpdfJson | null> {
-  const bin = tryResolveBin('HYPER_QPDF', 'qpdf');
-  if (!bin) return Promise.resolve(null);
-  return new Promise((resolve) => {
-    const child = spawn(
-      bin,
-      ['--json=2', '--json-key=pages', '--json-key=qpdf', '--json-stream-data=none', safeArgPath(inPath)],
-      { stdio: ['ignore', 'pipe', 'ignore'], ...stageSpawnOpts(limits) },
-    );
-    const chunks: Buffer[] = [];
-    child.stdout?.on('data', (c: Buffer) => chunks.push(c));
-    child.on('error', () => resolve(null));
-    child.on('close', () => {
-      try {
-        resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')) as QpdfJson);
-      } catch {
-        resolve(null);
-      }
-    });
-  });
-}
-
-async function raiseFileHeaderVersion(p: string, minVersion: string): Promise<void> {
-  if (minVersion === 'none') return;
-  const fh = await fs.promises.open(p, 'r+');
-  try {
-    const head = new Uint8Array(8);
-    const { bytesRead } = await fh.read(head, 0, 8, 0);
-    const current = head.subarray(0, bytesRead);
-    const raised = raiseHeaderVersion(current, minVersion);
-    if (raised !== current) {
-      await fh.write(raised, 0, raised.length, 0);
-    }
-  } finally {
-    await fh.close();
-  }
-}
-
-function runQpdfPack(
-  inPath: string,
-  outPath: string,
-  limits?: StageLimits,
-  recompressFlate = false,
-  linearize = false,
-): Promise<boolean> {
-  return runQpdf([
-    '--warning-exit-0',
-    '--object-streams=generate',
-    ...(recompressFlate ? ['--recompress-flate'] : []),
-    ...(linearize ? ['--linearize'] : []),
-    '--compression-level=9',
-    safeArgPath(inPath),
-    safeArgPath(outPath),
-  ], limits);
-}
-
-async function runQpdfDecrypt(inPath: string, outPath: string, password: string, limits?: StageLimits): Promise<void> {
-  const bin = requireBin('HYPER_QPDF', 'qpdf');
-  const ok = await new Promise<boolean>((resolve) => {
-    const child = spawn(
-      bin,
-      ['--warning-exit-0', '--password-file=-', '--decrypt', safeArgPath(inPath), safeArgPath(outPath)],
-      { stdio: ['pipe', 'ignore', 'ignore'], ...stageSpawnOpts(limits) },
-    );
-    child.on('error', () => resolve(false));
-    child.on('close', (code) => resolve(code === 0));
-    const stdin = child.stdin;
-    if (stdin) {
-      stdin.on('error', () => {});
-      const firstLine = password.split('\n', 1)[0] ?? '';
-      stdin.end(firstLine);
-    }
-  });
-  if (!ok) {
-    throwIfAborted(limits?.signal);
-    throw new HyperError('decrypt_failed');
-  }
-}
-
 export function resolveOptions(input: CompressInput): HyperCompressOptions {
   const base = input.preset ? HYPER_PRESETS[input.preset] : HYPER_PRESETS.medium;
   return normalizeHyperOptions({ ...base, ...(input.options ?? {}) });
 }
 
 export async function verifyPassword(sourcePath: string, password: string, timeoutMs?: number): Promise<boolean> {
-  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hyper-verify-'));
-  try {
-    await runQpdfDecrypt(sourcePath, path.join(tmpDir, 'dec.pdf'), password, {
-      timeoutMs: timeoutMs ?? 60_000,
-    });
-    return true;
-  } catch (err) {
-    if (err instanceof HyperError && err.code !== 'decrypt_failed') throw err;
-    return false;
-  } finally {
-    await fs.promises.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
-  }
+  const native = loadNative();
+  return unwrap<boolean>(await native.verifyPasswordNative({ sourcePath, password, timeoutMs, ...binaries() }));
 }
 
 export async function compress(input: CompressInput): Promise<CompressResult> {
   if (!input.sourcePath) throw new HyperError('engine_error', 'sourcePath is required');
-  const requested = resolveOptions(input);
-  let options = requested;
-  const warnings: string[] = [];
-  const password =
-    typeof input.password === 'string' && input.password.length > 0 ? input.password : null;
-  const { size: originalSize, claimed } = await readSourceInfo(input.sourcePath);
-
-  const overall = new AbortController();
-  const totalTimeoutMs = input.totalTimeoutMs;
-  let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
-  if (typeof totalTimeoutMs === 'number' && totalTimeoutMs > 0) {
-    deadlineTimer = setTimeout(() => {
-      overall.abort(new HyperError('timeout'));
-    }, totalTimeoutMs);
-    deadlineTimer.unref();
-  }
-  const effectiveSignal: AbortSignal | undefined = deadlineTimer
-    ? input.signal
-      ? AbortSignal.any([input.signal, overall.signal])
-      : overall.signal
-    : input.signal;
-
-  const limits: StageLimits = {
-    signal: effectiveSignal,
-    timeoutMs: input.timeoutMs ?? DEFAULT_STAGE_TIMEOUT_MS,
+  const native = loadNative();
+  const bins = binaries();
+  if (!bins.worker) throw missing('hpdf-worker', 'HYPER_DRV');
+  const throwIfAborted = (): void => {
+    if (input.signal?.aborted) {
+      const reason: unknown = input.signal.reason;
+      throw reason instanceof HyperError ? reason : new HyperError('cancelled');
+    }
   };
-
-  const preserving = Boolean(options.preserveConformance && claimed);
-  if (preserving && claimed) {
-    options = conformanceSafeOptions(options, claimed);
-    warnings.push(...conformanceWarnings(requested, options));
-  }
-  options = { ...options, preserveConformance: preserving };
-  const wantReport = input.report === true || (typeof input.report === 'string' && input.report.length > 0);
-  const tokens = [...buildHyperTokens(options), ...(wantReport ? ['71=1'] : [])];
-
-  let finalPath: string;
-  if (input.savePath && input.savePath.length > 0) {
-    finalPath = input.savePath;
-  } else {
-    const dir = path.dirname(input.sourcePath);
-    const ext = path.extname(input.sourcePath);
-    const base = path.basename(input.sourcePath, ext);
-    finalPath = path.join(dir, `${base}-compressed${ext || '.pdf'}`);
-  }
-
-  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hyper-'));
-  const drvOut = path.join(tmpDir, 'drv.pdf');
-  const packOut = path.join(tmpDir, 'pack.pdf');
-
+  throwIfAborted();
+  const handle = new native.CancelHandle();
+  const onAbort = (): void => handle.cancel();
+  input.signal?.addEventListener('abort', onAbort, { once: true });
   try {
-    let workIn = input.sourcePath;
-    let fallbackBase = input.sourcePath;
-    if (password) {
-      const dec = path.join(tmpDir, 'dec.pdf');
-      await runQpdfDecrypt(input.sourcePath, dec, password, limits);
-      workIn = dec;
-      fallbackBase = dec;
-    }
-    const baselineSize = await statSize(fallbackBase);
-
-    const skipPack = preserving && !packAllowedWhilePreserving();
-
-    const runAttempt = async (
-      attemptOptions: HyperCompressOptions,
-      drvPath: string,
-      packPath: string,
-    ): Promise<{ ok: boolean; signed: boolean; signaturesRemoved: boolean; candidate: string | null }> => {
-      const attemptTokens = buildHyperTokens(attemptOptions);
-      const r = await runDriver(workIn, drvPath, attemptTokens, limits);
-      if (!r.ok || r.signed) return { ...r, candidate: null };
-      if (skipPack) return { ...r, candidate: drvPath };
-      if ((await runQpdfPack(drvPath, packPath, limits, false, attemptOptions.linearize)) &&
-          (await statSize(packPath)) > 0) {
-        return { ...r, candidate: packPath };
-      }
-      return { ...r, candidate: drvPath };
-    };
-
-    const target = input.targetSizeBytes && input.targetSizeBytes > 0
-      ? Math.floor(input.targetSizeBytes)
-      : null;
-
-    const { ok, signed, signaturesRemoved, note, stderr } =
-      await runDriver(workIn, drvOut, tokens, limits);
-    if (note) warnings.push(note);
-    throwIfAborted(effectiveSignal);
-
-    const makeReport = async (outPath: string, compressedSize: number): Promise<HyperReport | undefined> => {
-      if (!wantReport) return undefined;
-      const [before, after] = await Promise.all([
-        runQpdfJson(workIn, limits),
-        runQpdfJson(outPath, limits),
-      ]);
-      if (!before || !after) {
-        warnings.push('report unavailable: the PDF structure could not be read');
-        return undefined;
-      }
-      const report = buildReport(before, after, { originalSize, compressedSize }, parseImageNotes(stderr));
-      if (typeof input.report === 'string') {
-        await fs.promises.writeFile(input.report, JSON.stringify(report, null, 2));
-      }
-      return report;
-    };
-
-    if (ok && signed) {
-      await fs.promises.copyFile(fallbackBase, finalPath);
-      const signedSize = await statSize(finalPath);
-      return {
-        outputPath: finalPath,
-        originalSize,
-        compressedSize: signedSize,
-        signed: true,
-        signaturesRemoved: false,
-        pdfa: claimed,
-        pdfaPreserved: Boolean(claimed),
-        metTarget: target != null ? signedSize <= target : null,
-        warnings,
-        report: await makeReport(finalPath, signedSize),
-      };
-    }
-
-    let packed: string | null = null;
-    if (ok) {
-      if (skipPack) {
-        packed = drvOut;
-      } else if ((await runQpdfPack(drvOut, packOut, limits, false, options.linearize)) &&
-                 (await statSize(packOut)) > 0) {
-        packed = packOut;
-      } else {
-        packed = drvOut;
-      }
-    } else if (!skipPack && (await runQpdfPack(workIn, packOut, limits, true, options.linearize)) &&
-               (await statSize(packOut)) > 0) {
-      packed = packOut;
-    }
-
-    if (target != null && packed && !preserving) {
-      let bestFit: { path: string; size: number } | null = null;
-      let smallest = { path: packed, size: await statSize(packed) };
-      if (smallest.size <= target) {
-        bestFit = smallest;
-      } else {
-        const attemptDrv = path.join(tmpDir, 'tgt-drv.pdf');
-        const attemptPack = path.join(tmpDir, 'tgt-pack.pdf');
-        const keepFit = path.join(tmpDir, 'tgt-fit.pdf');
-        const keepSmallest = path.join(tmpDir, 'tgt-small.pdf');
-        const baseOpts: HyperCompressOptions = {
-          ...options,
-          lossless: false,
-        };
-        const startQ = targetStartQuality(baseOpts);
-        let lo = TARGET_QUALITY_FLOOR;
-        let hi = startQ - 1;
-        let iterations = 0;
-        while (lo <= hi && iterations < TARGET_QUALITY_STEPS) {
-          iterations++;
-          throwIfAborted(effectiveSignal);
-          const q = Math.floor((lo + hi) / 2);
-          const res = await runAttempt(
-            { ...baseOpts, imageQuality: q },
-            attemptDrv,
-            attemptPack,
-          );
-          if (!res.candidate) break;
-          const size = await statSize(res.candidate);
-          if (size > 0 && size < smallest.size) {
-            await fs.promises.copyFile(res.candidate, keepSmallest);
-            smallest = { path: keepSmallest, size };
-          }
-          if (size > 0 && size <= target) {
-            await fs.promises.copyFile(res.candidate, keepFit);
-            bestFit = { path: keepFit, size };
-            lo = q + 1;
-          } else {
-            hi = q - 1;
-          }
-        }
-        for (const rung of targetLadder(baseOpts)) {
-          if (bestFit) break;
-          throwIfAborted(effectiveSignal);
-          const res = await runAttempt(rung, attemptDrv, attemptPack);
-          if (!res.candidate) break;
-          const size = await statSize(res.candidate);
-          if (size > 0 && size <= target) {
-            await fs.promises.copyFile(res.candidate, keepFit);
-            bestFit = { path: keepFit, size };
-          } else if (size > 0 && size < smallest.size) {
-            await fs.promises.copyFile(res.candidate, keepSmallest);
-            smallest = { path: keepSmallest, size };
-          }
-        }
-        packed = bestFit ? bestFit.path : smallest.path;
-      }
-    }
-
-    throwIfAborted(effectiveSignal);
-
-    let usedEngineOutput = false;
-    let finalSource = fallbackBase;
-    if (packed) {
-      const packedSize = await statSize(packed);
-      if (packedSize > 0 && packedSize < baselineSize) {
-        finalSource = packed;
-        usedEngineOutput = true;
-      }
-    }
-
-    if (preserving) {
-      const src = await fs.promises.readFile(fallbackBase);
-      const outBytes = finalSource === fallbackBase ? src : await fs.promises.readFile(finalSource);
-      await fs.promises.writeFile(finalPath, restoreHeaderVersion(src, outBytes));
-    } else {
-      await fs.promises.copyFile(finalSource, finalPath);
-    }
-    await raiseFileHeaderVersion(finalPath, options.minVersion);
-    if (!usedEngineOutput) {
-      if (options.colorTarget !== 'original' && !options.lossless) {
-        warnings.push(`colorTarget ${options.colorTarget} not applied: the converted file was not smaller than the original, so the original was kept`);
-      }
-      if (options.linearize) {
-        warnings.push('linearize not applied: the optimized file was not smaller than the original, so the original was kept');
-      }
-    }
-
-    const finalSize = await statSize(finalPath);
-    const metTarget = target != null ? finalSize <= target : null;
-    if (target != null && metTarget === false) {
-      warnings.push(targetMissWarning(finalSize, target));
-    }
-    const removed = signaturesRemoved && usedEngineOutput;
-    if (removed) {
-      warnings.push('digital signatures removed so the document could be compressed');
-    }
-
-    return {
-      outputPath: finalPath,
-      originalSize,
-      compressedSize: finalSize,
-      signed: false,
-      signaturesRemoved: removed,
-      pdfa: claimed,
-      pdfaPreserved: preserving,
-      metTarget,
-      warnings,
-      report: await makeReport(finalPath, finalSize),
-    };
+    const raw = await native.compressNative(
+      {
+        sourcePath: input.sourcePath,
+        savePath: input.savePath,
+        password: input.password ?? null,
+        preset: input.preset,
+        options: input.options ?? {},
+        targetSizeBytes: input.targetSizeBytes,
+        report: input.report,
+        timeoutMs: input.timeoutMs,
+        totalTimeoutMs: input.totalTimeoutMs,
+        ...bins,
+      },
+      handle,
+    );
+    const result = unwrap<CompressResult>(raw);
+    if (result.report === undefined) delete result.report;
+    return result;
+  } catch (err) {
+    if (err instanceof HyperError && err.code === 'cancelled') throwIfAborted();
+    throw err;
   } finally {
-    if (deadlineTimer) clearTimeout(deadlineTimer);
-    try {
-      await fs.promises.rm(tmpDir, { recursive: true, force: true });
-    } catch {
-      void 0;
-    }
+    input.signal?.removeEventListener('abort', onAbort);
   }
 }
