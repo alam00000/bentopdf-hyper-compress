@@ -21,7 +21,7 @@ test:
 	npm run --silent test
 
 version-check:
-	@node -e "const p=require('./package.json').version;const h=require('fs').readFileSync('sdk/native/hpdf.h','utf8').match(/HPDF_VERSION \"(.*)\"/)[1];if(p!==h){console.error('version drift: package.json '+p+' vs hpdf.h '+h);process.exit(1)};console.log('version '+p)"
+	@node -e "const p=require('./package.json').version;const h=require('fs').readFileSync('sdk/native/hpdf.h','utf8').match(/HPDF_VERSION \"(.*)\"/)[1];const r=require('fs').readFileSync('rust/Cargo.toml','utf8').match(/\[workspace\.package\][^\[]*?\nversion = \"(.*)\"/)[1];if(p!==h||p!==r){console.error('version drift: package.json '+p+' vs hpdf.h '+h+' vs rust/Cargo.toml '+r);process.exit(1)};console.log('version '+p)"
 
 smoke:
 	node dist/scripts/smoke.js "$${PDF:?set PDF=path/to.pdf}"

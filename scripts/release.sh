@@ -69,12 +69,23 @@ const stamp = (p) => {
 };
 stamp('package.json');
 for (const dir of fs.readdirSync('packages/npm')) stamp(`packages/npm/${dir}/package.json`);
+const cargo = 'rust/Cargo.toml';
+fs.writeFileSync(
+  cargo,
+  fs.readFileSync(cargo, 'utf8').replace(/(\[workspace\.package\][^\[]*?\nversion = )"[^"]*"/, `$1"${version}"`),
+);
+const lock = 'rust/Cargo.lock';
+fs.writeFileSync(
+  lock,
+  fs.readFileSync(lock, 'utf8').replace(/(name = "hyper-compress[a-z-]*"\nversion = )"[^"]*"/g, `$1"${version}"`),
+);
+console.log(`stamped rust workspace ${version}`);
 EOF
 
 npm install --package-lock-only --silent
 make check
 
-git add sdk/native/hpdf.h package.json package-lock.json packages/npm/*/package.json
+git add sdk/native/hpdf.h package.json package-lock.json packages/npm/*/package.json rust/Cargo.toml rust/Cargo.lock
 if git diff --cached --quiet; then
   echo "==> versions already at $VERSION; tagging current HEAD"
 else
