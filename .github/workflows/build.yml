@@ -236,9 +236,22 @@ jobs:
           cli/prebuilt/hpdf-worker.exe tests/regression/failset/govdocs001-0142b23c0caa.pdf out.pdf 1=150 2=50
           head -c 4 out.pdf | grep -q '%PDF'
           echo "worker compressed a real PDF: $(stat -c%s tests/regression/failset/govdocs001-0142b23c0caa.pdf) -> $(stat -c%s out.pdf) bytes"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: test the sdk, cli and server against the real engine
+        shell: bash
+        run: |
+          npm ci --no-audit --no-fund
+          npm test
+          cargo test --workspace --locked --manifest-path rust/Cargo.toml
 
   docker:
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
       - name: build image

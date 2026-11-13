@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { compress, HyperError } from '../sdk/node/index.js';
-import { hasEngine, imagePdf, textPdf } from './helpers.js';
+import { hasEngine, imagePdf, prebuiltBin, textPdf } from './helpers.js';
 
 const engine = hasEngine();
 const opts = { skip: engine ? false : 'built worker/qpdf not present' };
@@ -24,8 +24,7 @@ test('a wrong password on an encrypted file rejects as decrypt_failed', opts, as
     const enc = path.join(dir, 'enc.pdf');
     const out = path.join(dir, 'out.pdf');
     writeFileSync(plain, textPdf());
-    const qpdf = process.env.HYPER_QPDF ??
-      path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '..', 'cli', 'prebuilt', 'qpdf');
+    const qpdf = process.env.HYPER_QPDF ?? prebuiltBin('qpdf');
     const r = spawnSync(qpdf, ['--encrypt', 'user', 'owner', '256', '--', plain, enc]);
     if (r.status !== 0) {
       return;
@@ -47,8 +46,7 @@ test('a correct password decrypts and compresses through the stdin path', opts, 
     const enc = path.join(dir, 'enc.pdf');
     const out = path.join(dir, 'out.pdf');
     writeFileSync(plain, textPdf());
-    const qpdf = process.env.HYPER_QPDF ??
-      path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '..', 'cli', 'prebuilt', 'qpdf');
+    const qpdf = process.env.HYPER_QPDF ?? prebuiltBin('qpdf');
     const r = spawnSync(qpdf, ['--encrypt', 'user', 'owner', '256', '--', plain, enc]);
     if (r.status !== 0) {
       return;
@@ -68,8 +66,7 @@ test('an exhausted total-timeout budget surfaces as timeout, not decrypt_failed'
     const enc = path.join(dir, 'enc.pdf');
     const out = path.join(dir, 'out.pdf');
     writeFileSync(plain, textPdf());
-    const qpdf = process.env.HYPER_QPDF ??
-      path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '..', 'cli', 'prebuilt', 'qpdf');
+    const qpdf = process.env.HYPER_QPDF ?? prebuiltBin('qpdf');
     const r = spawnSync(qpdf, ['--encrypt', 'user', 'owner', '256', '--', plain, enc]);
     if (r.status !== 0) {
       return;

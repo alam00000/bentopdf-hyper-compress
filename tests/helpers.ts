@@ -7,10 +7,15 @@ import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const prebuilt = path.resolve(here, '..', '..', 'cli', 'prebuilt');
+const EXE = process.platform === 'win32' ? '.exe' : '';
+
+export function prebuiltBin(name: string): string {
+  return path.join(prebuilt, name + EXE);
+}
 
 export function hasEngine(): boolean {
-  const worker = process.env.HYPER_DRV ?? path.join(prebuilt, 'hpdf-worker');
-  const qpdf = process.env.HYPER_QPDF ?? path.join(prebuilt, 'qpdf');
+  const worker = process.env.HYPER_DRV ?? prebuiltBin('hpdf-worker');
+  const qpdf = process.env.HYPER_QPDF ?? prebuiltBin('qpdf');
   return existsSync(worker) && existsSync(qpdf);
 }
 
@@ -234,7 +239,7 @@ export function expandPdf(bytes: Uint8Array): Uint8Array {
     const inFile = path.join(dir, 'in.pdf');
     const outFile = path.join(dir, 'out.pdf');
     writeFileSync(inFile, bytes);
-    const r = spawnSync(path.join(prebuilt, 'qpdf'), [
+    const r = spawnSync(prebuiltBin('qpdf'), [
       '--qdf',
       '--object-streams=disable',
       '--stream-data=uncompress',
@@ -329,7 +334,7 @@ export function layeredScanPdf(): Uint8Array {
 }
 
 export function hasRenderer(): boolean {
-  return existsSync(path.join(prebuilt, 'hpdf-render'));
+  return existsSync(prebuiltBin('hpdf-render'));
 }
 
 export function renderGray(bytes: Uint8Array, scale = 1): { width: number; height: number; gray: Uint8Array } {
@@ -338,7 +343,7 @@ export function renderGray(bytes: Uint8Array, scale = 1): { width: number; heigh
     const inFile = path.join(dir, 'in.pdf');
     const outFile = path.join(dir, 'out.ppm');
     writeFileSync(inFile, bytes);
-    const r = spawnSync(path.join(prebuilt, 'hpdf-render'), [inFile, outFile, String(scale)]);
+    const r = spawnSync(prebuiltBin('hpdf-render'), [inFile, outFile, String(scale)]);
     if (r.status !== 0) throw new Error(`hpdf-render failed (${r.status})`);
     const ppm = readFileSync(outFile);
     const header = /^P6\s+(\d+)\s+(\d+)\s+255\s/.exec(ppm.subarray(0, 64).toString('latin1'));
@@ -471,7 +476,7 @@ export function cmykImagePdf(width = 600, height = 500): Uint8Array {
 
 export function engineHasBranchFeatures(): boolean {
   if (!hasEngine()) return false;
-  const worker = process.env.HYPER_DRV ?? path.join(prebuilt, 'hpdf-worker');
+  const worker = process.env.HYPER_DRV ?? prebuiltBin('hpdf-worker');
   const dir = mkdtempSync(path.join(tmpdir(), 'hyper-probe-'));
   try {
     const inFile = path.join(dir, 'in.pdf');

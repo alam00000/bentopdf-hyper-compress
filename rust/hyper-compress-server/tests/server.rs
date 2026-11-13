@@ -253,3 +253,45 @@ fn full_queue_returns_429() {
     assert_eq!((r.status, r.json()["error"].as_str().unwrap()), (429, "busy"));
     drop(holder);
 }
+
+#[test]
+fn burst_respects_concurrency_and_leaves_no_temp_files() {
+    need_engine!();
+    let tmp = tempfile::tempdir().unwrap();
+    let t = tmp.path().to_str().unwrap();
+    let s = std::sync::Arc::new(start(&[("HYPER_CONCURRENCY", "2"), ("HYPER_QUEUE", "40"), ("TMPDIR", t), ("TMP", t), ("TEMP", t)]));
+    let input = std::sync::Arc::new(pdf::image_pdf());
+    let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let monitor = {
+        let (s, done) = (s.clone(), done.clone());
+        thread::spawn(move || {
+            let mut peak = 0;
+            while !done.load(std::sync::atomic::Ordering::SeqCst) {
+                let h = request(&s, "GET", "/healthz", &[], b"").json();
+                peak = peak.max(h["active"].as_u64().unwrap_or(0));
+                thread::sleep(Duration::from_millis(5));
+            }
+            peak
+        })
+    };
+    let workers: Vec<_> = (0..16)
+        .map(|i| {
+            let (s, input) = (s.clone(), input.clone());
+            thread::spawn(move || {
+                let preset = ["low", "medium", "high", "lossless"][i % 4];
+                post(&s, &format!("/api/compress?preset={preset}"), &input)
+            })
+        })
+        .collect();
+    for w in workers {
+        let r = w.join().unwrap();
+        assert_eq!(r.status, 200, "{}", String::from_utf8_lossy(&r.body));
+        assert!(r.body.starts_with(b"%PDF") && r.body.len() <= input.len());
+    }
+    done.store(true, std::sync::atomic::Ordering::SeqCst);
+    let peak = monitor.join().unwrap();
+    assert!((1..=2).contains(&peak), "peak active jobs {peak}");
+    assert_eq!(request(&s, "GET", "/healthz", &[], b"").json(), serde_json::json!({ "ok": true, "active": 0, "queued": 0 }));
+    let left: Vec<_> = std::fs::read_dir(tmp.path()).unwrap().flatten().map(|e| e.file_name()).collect();
+    assert!(left.is_empty(), "temp files left behind: {left:?}");
+}

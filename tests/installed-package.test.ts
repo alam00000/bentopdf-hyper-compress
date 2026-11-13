@@ -5,17 +5,18 @@ import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { hasEngine, textPdf } from './helpers.js';
+import { hasEngine, prebuiltBin, textPdf } from './helpers.js';
 import { writeFileSync } from 'node:fs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..', '..');
+const WIN = process.platform === 'win32';
 
 test('the packed tarball installs and works the way npm delivers it', async () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'hyper-installed-'));
   try {
     execFileSync('npm', ['pack', '--pack-destination', dir], {
-      cwd: ROOT, stdio: 'pipe',
+      cwd: ROOT, stdio: 'pipe', shell: WIN,
     });
     const tarball = readdirSync(dir).find((f) => f.endsWith('.tgz'));
     assert.ok(tarball, 'npm pack produced no tarball');
@@ -23,26 +24,26 @@ test('the packed tarball installs and works the way npm delivers it', async () =
     execFileSync('npm', [
       'install', '-g', '--prefix', prefix, '--no-audit', '--no-fund',
       path.join(dir, tarball),
-    ], { stdio: 'pipe' });
+    ], { stdio: 'pipe', shell: WIN });
 
-    const bin = path.join(prefix, 'bin', 'hyper');
+    const bin = WIN ? path.join(prefix, 'hyper.cmd') : path.join(prefix, 'bin', 'hyper');
     assert.ok(existsSync(bin), 'installed prefix has no hyper bin');
 
-    const usage = spawnSync(bin, [], { encoding: 'utf8' });
+    const usage = spawnSync(bin, [], { encoding: 'utf8', shell: WIN });
     assert.equal(usage.status, 2, 'bare invocation must print usage, not exit silently');
     assert.match(usage.stderr, /usage: hyper/);
 
-    const help = spawnSync(bin, ['--help'], { encoding: 'utf8' });
+    const help = spawnSync(bin, ['--help'], { encoding: 'utf8', shell: WIN });
     assert.equal(help.status, 0, '--help must exit 0');
     assert.match(help.stdout, /usage: hyper/);
     assert.match(help.stdout, /--target-size/);
 
-    const ver = spawnSync(bin, ['--version'], { encoding: 'utf8' });
+    const ver = spawnSync(bin, ['--version'], { encoding: 'utf8', shell: WIN });
     assert.equal(ver.status, 0, '--version must exit 0');
     assert.match(ver.stdout.trim(), /^\d+\.\d+\.\d+$/);
 
     const installedPkg = path.join(
-      prefix, 'lib', 'node_modules', 'hyper-compress', 'dist', 'sdk', 'node', 'index.js',
+      prefix, ...(WIN ? [] : ['lib']), 'node_modules', 'hyper-compress', 'dist', 'sdk', 'node', 'index.js',
     );
     const sdk = (await import(pathToFileURL(installedPkg).href)) as {
       resolveOptions: (input: { preset?: string }) => Record<string, unknown>;
@@ -57,10 +58,11 @@ test('the packed tarball installs and works the way npm delivers it', async () =
       writeFileSync(src, textPdf());
       const run = spawnSync(bin, [src, out], {
         encoding: 'utf8',
+        shell: WIN,
         env: {
           ...process.env,
-          HYPER_DRV: path.join(ROOT, 'cli', 'prebuilt', 'hpdf-worker'),
-          HYPER_QPDF: path.join(ROOT, 'cli', 'prebuilt', 'qpdf'),
+          HYPER_DRV: prebuiltBin('hpdf-worker'),
+          HYPER_QPDF: prebuiltBin('qpdf'),
         },
       });
       assert.equal(run.status, 0, `compress failed: ${run.stderr}`);

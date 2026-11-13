@@ -43,7 +43,9 @@ test('version() reports the package version', () => {
   assert.match(version(), /^\d+\.\d+\.\d+$/);
 });
 
-test('the bin runs when invoked through a symlink, as npm installs it', async () => {
+test('the bin runs when invoked through a symlink, as npm installs it', {
+  skip: process.platform === 'win32' ? 'npm installs a .cmd shim on Windows, not a symlink' : false,
+}, async () => {
   const { spawnSync } = await import('node:child_process');
   const { mkdtempSync, symlinkSync, rmSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');

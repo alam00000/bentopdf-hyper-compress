@@ -200,3 +200,24 @@ test('MRC keeps the masked ink layer of an already-layered scan on top', {
   assert.ok(ink > 1000, 'the fixture must render visible ink');
   assert.ok(kept / ink > 0.95, `ink kept ${(kept / ink).toFixed(3)}, the text was painted over`);
 });
+
+test('many compressions in parallel all succeed independently', opts, async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'hyper-par-'));
+  try {
+    const inputs = [imagePdf(), textPdf(), richTextPdf(), imagePdf(640, 480)];
+    const jobs = Array.from({ length: 12 }, (_, i) => {
+      const src = path.join(dir, `in-${i}.pdf`);
+      writeFileSync(src, inputs[i % inputs.length] as Uint8Array);
+      const preset = (['low', 'medium', 'high', 'lossless'] as const)[i % 4];
+      return compress({ sourcePath: src, savePath: path.join(dir, `out-${i}.pdf`), preset });
+    });
+    const results = await Promise.all(jobs);
+    results.forEach((r, i) => {
+      assert.equal(r.outputPath, path.join(dir, `out-${i}.pdf`));
+      assert.ok(r.compressedSize > 0 && r.compressedSize <= r.originalSize, `job ${i}`);
+      assert.equal(readFileSync(r.outputPath).subarray(0, 4).toString('latin1'), '%PDF');
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
