@@ -1,16 +1,18 @@
 ---
 layout: home
+title: Hyper Compress
+description: High fidelity, content preserving PDF compression for the browser, the terminal, Node.js, Rust, C and your own servers.
 
 hero:
   name: Hyper Compress
-  text: The Best Open Source Compression Engine
-  tagline: A high fidelity, content preserving compression engine that preserve PDF conformance, and runs everywhere from the browser to your server.
+  text: Smaller PDFs that still work
+  tagline: A PDF compression engine that keeps text searchable, signatures valid and PDF/A honest, and never returns a bigger file. Runs in the browser, the terminal, Node.js, Rust, C and Docker.
   image:
     src: /images/logo.svg
     alt: Hyper Compress
   actions:
     - theme: brand
-      text: Get Started
+      text: Quickstart
       link: /getting-started
     - theme: alt
       text: Compress a PDF now
@@ -20,33 +22,52 @@ hero:
       link: https://github.com/alam00000/bentopdf-hyper-compress
 
 features:
-  - title: Monotonic by design
-    details: Hyper never makes your PDFs bigger. If there’s nothing to gain from compression, it simply gives you the original file back
+  - title: Never bigger
+    details: If Hyper cannot make a file smaller, you get your original bytes back. In 4,000 benchmark runs it made no file bigger.
+    link: /guarantees
+    linkText: Read the guarantees
   - title: Content preserving
-    details: Your text stays searchable, signatures remain valid, and PDF/A files stay conformant. True lossless mode compresses your PDF without changing its content..
-  - title: Reliability you can measure
-    details: On 1,000 real PDFs it beat the PDF Tools, Apryse and Nutrient SDKs at every level, with 0 failures in 4,000 runs. Against Ghostscript, MuPDF and qpdf it had the lowest corruption rate of any engine we measured.
-  - title: Built to run everywhere
-    details: The same Hyper engine powers the CLI, Node SDK, browser, self-hosted service, and C API.
+    details: Text stays searchable, digital signatures stay valid, tags stay for screen readers, and a lossless mode changes no pixel.
+    link: /guides/choosing-settings
+    linkText: Choose your settings
+  - title: Measured, in public
+    details: On 1,000 real PDFs it saved more than the PDF Tools, Apryse and Nutrient SDKs at every level, with no failures. Every file and script is published.
+    link: /benchmarks
+    linkText: See the benchmarks
+  - title: One engine, everywhere
+    details: The same engine and options in the browser, the CLI, Node.js, Rust, C and a self-hosted HTTP service, on macOS, Linux (x64 and ARM64) and Windows.
+    link: /platforms
+    linkText: Platforms and surfaces
 ---
 
-## What is Hyper Compress
+## What Hyper does
 
-Hyper Compress is built by the [BentoPDF](https://www.bentopdf.com) team. It works throughout the entire PDF, finding the best way to reduce size without compromising fidelity.
+Hyper Compress goes through every part of a PDF and stores it in less space: images, fonts, page content and duplicate data. For each image it tries several encodings and keeps the smallest one that still looks right. Every risky change is checked, and anything that would change how a page looks is rolled back.
 
-Hyper optimizes images, fonts, content and duplicate data, choosing the best compression method for each part of the document. Every change is checked, and anything that could affect the result is automatically rolled back.
+On top of the engine, Hyper adds the parts that make it safe to run on files you did not make: it decrypts with your password, repacks the file, can search for a target size, keeps PDF/A files honest, never returns a bigger file, and tells you about anything it skipped.
 
-On our benchmark suite, the median document shrinks by 58% at the default preset while remaining visually identical. The full methodology and per-file results are available in the benchmarks.
+## Start here
 
-## How do you want to use Hyper?
-
-| You want to | Use |
+| You want to | Go to |
 |---|---|
-| Compress a PDF right now, in the browser | [Try our live website](https://hyper.bentopdf.com) |
-| Compress PDFs from the terminal | the [CLI](/cli) |
-| Compress PDFs from Node.js | the [Node SDK](/node-sdk) |
-| Compress PDFs in the browser | the [WebAssembly package](/wasm) |
-| Run a compression service for your team | the [self-hosted Docker image](/self-hosting) |
-| Embed the engine in another language | the [C API](/c-api) |
+| Compress your first PDF in five minutes | [Quickstart](/getting-started) |
+| Pick settings for your documents | [Choose the right settings](/guides/choosing-settings) |
+| Get every file under an upload limit | [Hit a file size target](/guides/size-targets) |
+| Shrink scanned documents | [Scanned documents](/guides/scanned-documents) |
+| Run a compression service for your team | [Self-hosting](/self-hosting) and the [HTTP API](/http-api) |
+| Look up a function, flag, header or option | [CLI](/cli), [Node.js SDK](/node-sdk), [HTTP API](/http-api), [Options](/options) |
 
-Not sure which one runs on your platform? See [platforms and surfaces](/platforms).
+## How a compression runs
+
+1. **Read.** Hyper opens the PDF. If it is encrypted, it decrypts it with the password you gave.
+2. **Compress.** The engine runs in its own process, so a broken or hostile file cannot crash your program. It re-encodes images, subsets and merges fonts, rewrites page content compactly and removes what you asked it to remove.
+3. **Repack.** Objects are packed into compressed streams.
+4. **Search** (only with a size target). Hyper tries lower quality and then lower resolution until the file fits, or returns the smallest file it can make.
+5. **Check.** If the result is not smaller than the input, you get the input back. PDF/A claims are kept only when they are still true.
+6. **Report.** You get the sizes, whether the file was signed, its PDF/A level, whether a target was met, and a warning for anything that was skipped.
+
+## Key ideas
+
+- **Presets** are complete sets of options: `low`, `medium` (the default), `high` and `lossless`. Start from one and change what you need. See [Options](/options).
+- **Outcomes are not errors.** "No gain", "signed, returned untouched" and "target not met" are normal results with clear flags. Errors are only for things like a wrong password or a timeout. See [Errors](/errors).
+- **Warnings explain every skip.** When an option is unsafe for a file, Hyper skips it and tells you why. See [Warnings](/warnings).

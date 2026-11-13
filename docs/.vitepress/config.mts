@@ -22,41 +22,66 @@ export default defineConfig({
 
         nav: [
             { text: 'Compress a PDF', link: 'https://hyper.bentopdf.com' },
-            { text: 'Getting Started', link: '/getting-started' },
-            { text: 'Options', link: '/options' },
+            { text: 'Quickstart', link: '/getting-started' },
+            { text: 'Guides', link: '/guides/choosing-settings' },
+            { text: 'API reference', link: '/node-sdk' },
             { text: 'Benchmarks', link: '/benchmarks' },
             { text: 'BentoPDF', link: 'https://www.bentopdf.com' }
         ],
 
         sidebar: [
             {
-                text: 'Guide',
+                text: 'Get started',
                 items: [
-                    { text: 'What is Hyper Compress', link: '/' },
-                    { text: 'Getting Started', link: '/getting-started' },
-                    { text: 'Platforms and surfaces', link: '/platforms' },
-                    { text: 'Guarantees', link: '/guarantees' },
-                    { text: 'Benchmarks', link: '/benchmarks' }
+                    { text: 'Overview', link: '/' },
+                    { text: 'Quickstart', link: '/getting-started' },
+                    { text: 'Platforms and surfaces', link: '/platforms' }
+                ]
+            },
+            {
+                text: 'Guides',
+                items: [
+                    { text: 'Choose the right settings', link: '/guides/choosing-settings' },
+                    { text: 'Hit a file size target', link: '/guides/size-targets' },
+                    { text: 'Encrypted PDFs', link: '/guides/encrypted-pdfs' },
+                    { text: 'Signed documents', link: '/guides/signed-documents' },
+                    { text: 'PDF/A archives', link: '/guides/pdfa' },
+                    { text: 'Scanned documents', link: '/guides/scanned-documents' },
+                    { text: 'Colour and print', link: '/guides/colour-and-print' },
+                    { text: 'Document structure and cleanup', link: '/guides/document-structure' },
+                    { text: 'Errors, timeouts and cancellation', link: '/guides/errors-and-cancellation' },
+                    { text: 'Running in production', link: '/guides/production' }
                 ]
             },
             {
                 text: 'Reference',
                 items: [
                     { text: 'CLI', link: '/cli' },
-                    { text: 'Node SDK', link: '/node-sdk' },
+                    { text: 'Node.js SDK', link: '/node-sdk' },
                     { text: 'WebAssembly', link: '/wasm' },
                     { text: 'HTTP API', link: '/http-api' },
+                    { text: 'Rust crate', link: '/rust' },
                     { text: 'C API', link: '/c-api' },
-                    { text: 'Options reference', link: '/options' },
-                    { text: 'Compression report', link: '/report' }
+                    { text: 'Options', link: '/options' },
+                    { text: 'Compression report', link: '/report' },
+                    { text: 'Errors', link: '/errors' },
+                    { text: 'Warnings', link: '/warnings' }
                 ]
             },
             {
                 text: 'Operate',
                 items: [
-                    { text: 'Self-Hosting', link: '/self-hosting' },
-                    { text: 'Building from Source', link: '/building' },
-                    { text: 'Licensing', link: '/licensing' }
+                    { text: 'Self-hosting', link: '/self-hosting' },
+                    { text: 'Building from source', link: '/building' }
+                ]
+            },
+            {
+                text: 'Resources',
+                items: [
+                    { text: 'Guarantees', link: '/guarantees' },
+                    { text: 'Benchmarks', link: '/benchmarks' },
+                    { text: 'Licensing', link: '/licensing' },
+                    { text: 'FAQ and troubleshooting', link: '/faq' }
                 ]
             }
         ],
@@ -73,6 +98,13 @@ export default defineConfig({
 
         search: {
             provider: 'local'
+        },
+
+        outline: { level: [2, 3], label: 'On this page' },
+
+        editLink: {
+            pattern: 'https://github.com/alam00000/bentopdf-hyper-compress/edit/main/docs/:path',
+            text: 'Edit this page on GitHub'
         }
     }
 })

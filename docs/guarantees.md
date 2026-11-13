@@ -1,71 +1,66 @@
+---
+title: Guarantees
+description: What Hyper Compress promises about every file it returns, and how each promise is enforced.
+---
+
 # Guarantees
 
-Other PDF compression tools have a problem. Files get bigger, signatures break, standards quietly stop being valid, and tools sometimes skip things without telling you.
+Compression tools often fail in quiet ways: files get bigger, signatures break, archived files still claim a standard they no longer meet, and options are skipped without a word. Hyper Compress is built so none of that happens. This page lists each promise, what it means for your files, and where it holds.
 
-Hyper is built to avoid exactly that. These guarantees are enforced by the engine itself, no matter how you use it.
+| Guarantee | CLI and Node.js SDK | HTTP API | WebAssembly | Rust crate | C API |
+|---|---|---|---|---|---|
+| [Never bigger](#the-output-is-never-larger-than-the-input) | yes | yes | yes | yes | no, compare sizes yourself |
+| [Signed documents untouched](#signed-documents-come-back-untouched) | yes | yes | yes | yes | yes |
+| [PDF/A stays true](#pdf-a-stays-compliant-or-stops-claiming-it-is) | yes | yes | yes | yes | only with `PDFA_MODE` |
+| [Rasterizing cannot destroy text](#rasterizing-cannot-destroy-text) | yes | yes | yes | yes | yes |
+| [Best effort on size targets](#a-size-target-gets-hyper-s-best-effort) | yes | yes | yes | yes | no target search |
+| [Nothing fails silently](#nothing-fails-silently) | yes | yes | yes | yes | return codes only |
+| [Hostile input is contained](#hostile-input-is-contained) | yes | yes | no, runs in process | yes | no, runs in process |
 
 ## The output is never larger than the input
 
-Compression is monotonic. The engine compares its result against the original and returns whichever is smaller, so the worst case is your original bytes back unchanged. Across the 2,104 document benchmark, Hyper grew a file zero times; the tools it was compared against grew files in up to a quarter of runs.
+Hyper compares its result with the file it started from and returns whichever is smaller. The worst case is your original bytes, unchanged.
+
+You can tell when this happened: the output size equals the input size. It is an outcome, not an error. In the public benchmarks Hyper made no file bigger in 4,000 runs against commercial SDKs, while the other engines made between 5 and 120 files bigger. See [Benchmarks](/benchmarks).
 
 ## Signed documents come back untouched
 
-A signed PDF can't be changed without breaking its signature. So Hyper doesn't try.
+Changing any byte of a digitally signed PDF breaks the signature. When Hyper finds a signature, it returns the exact original file and sets `signed: true` (the CLI prints `[signed: original preserved]`, the HTTP API sends `X-Signed: true`).
 
-If it finds a digital signature, it returns the exact original file and tells you why it wasn't compressed and the result reports `signed: true` so your code can tell why nothing shrank.
-
-If you would rather have a smaller file than a signed one, set `removeSignatures`. Hyper then strips the signatures, keeps the visible signature on the page, compresses the document, and reports `signaturesRemoved: true` with a warning. The output is no longer signed and can be signed again.
+If you would rather have a smaller file than a signed one, set `removeSignatures`. Hyper then removes the signatures, keeps the visible signature on the page, compresses the document and reports `signaturesRemoved: true` with a warning. The result is no longer signed and can be signed again. See [Signed documents](/guides/signed-documents).
 
 ## PDF/A stays compliant or stops claiming it is
 
-Hyper will never leave a PDF claiming to meet the PDF/A standard when it no longer does.
+A PDF/A file (the archiving version of PDF) carries a claim in its metadata that it meets the standard. Hyper never leaves that claim on a file that no longer meets it.
 
-With `preserveConformance` enabled, anything that could break compliance is automatically skipped. Without it, Hyper removes the PDF/A claim if the document no longer meets the standard. Each dropped step is reported in `warnings`
+- **With `preserveConformance`**, every step that could break the standard is switched off, and each one you asked for is reported as a warning. The claim stays and stays true.
+- **Without it**, if Hyper changes the file it removes the PDF/A claim from the metadata, so the file stops claiming a standard it may no longer meet. If Hyper returns the original unchanged, the original's claim stays, because it is still true.
+- **If the claim cannot be removed** from a compressed file, Hyper returns the original instead, with a warning.
 
-## Rasterization cannot destroy text
+See [PDF/A archives](/guides/pdfa).
 
-`rasterizePages` replaces pages with rendered images, which is dramatic for scans but destructive for anything with real text. The engine walks every page's content, including text inside form XObjects and invisible OCR layers, and refuses to rasterize when any text exists. The refusal is reported in the result's `warnings` rather than silently ignored.
+## Rasterizing cannot destroy text
 
-`rasterizeText` turns that guard off for callers who want every page as an image anyway. Text then stops being selectable and searchable, and links stop working.
+`rasterizePages` replaces each page with a picture of itself, which is very effective for scans but destroys real text. Hyper checks every page first, including text inside reusable page parts and invisible OCR layers, and refuses to rasterize when any text exists. The refusal is reported as a warning.
 
+Set `rasterizeText` when you want every page as an image anyway. Text then stops being selectable and searchable, and links stop working. See [Scanned documents](/guides/scanned-documents).
 
 ## A size target gets Hyper's best effort
 
-When you set a target file size, Hyper works at it properly. It searches for the highest image quality that still fits under your limit, and if nothing fits, it keeps going: quality all the way down to 5, then resolution down through 72, 50 and 36 dpi.
+When you ask for a size, Hyper searches for the highest image quality that fits, then lowers quality down to 5 and resolution down through 72, 50 and 36 dpi. If the target can be reached, you get the best looking file that fits. If not, you get the smallest file Hyper could make, `metTarget: false`, and a warning with the size it reached.
 
-If your target is reachable, you get the best looking result that fits. If it is not, you get the smallest file Hyper could produce, `metTarget: false`, and a warning saying how small it managed to get. You are never handed a failure when a smaller file was still possible.
-
-Two things Hyper will not do to hit a number: it will not silently change what kind of document you have, so page rasterization stays opt-in through `rasterizePages` (the warning points at it when it would help), and it will not break any of the guarantees above.
+Hyper will not change what kind of document you have to hit a number: rasterizing stays your choice, and none of the other guarantees are relaxed. See [Hit a file size target](/guides/size-targets).
 
 ## Nothing fails silently
 
-Whenever the engine does less than you asked for instead of doing something unsafe, the result's `warnings` array says so and why: a rasterize request skipped over a text layer, or rasterize and Brotli dropped to preserve PDF/A. An empty array means every requested option was applied. Hard failures are typed errors (`decrypt_failed`, `engine_error`, `timeout`, `cancelled`), never silent fallbacks.
+Whenever Hyper does less than you asked because doing it would be unsafe for this file, the result's `warnings` list says what was skipped and why. An empty list means every requested option was applied. Every warning is listed in [Warnings](/warnings).
 
-## Every warning
-
-These are all the warnings Hyper can return. Numbers and option values in angle brackets are filled in for the actual run.
-
-| Warning | When |
-|---|---|
-| `rasterize skipped: document has a text layer` | `rasterizePages` was set but a page has text; set `rasterizeText` to rasterize anyway |
-| `rasterizePages disabled to preserve PDF/A conformance` | `rasterizePages` with `preserveConformance` on a PDF/A input |
-| `brotli disabled to preserve PDF/A conformance` | `brotli` with `preserveConformance` on a PDF/A input |
-| `removeMetadata refused: PDF/A requires the XMP metadata packet` | `removeMetadata` with `preserveConformance` on a PDF/A input |
-| `colorTarget ignored to preserve PDF/A conformance` | `colorTarget` with `preserveConformance` on a PDF/A input |
-| `linearize skipped to preserve PDF/A conformance` | `linearize` with `preserveConformance` on a PDF/A input |
-| `minVersion <version> refused: this PDF/A level requires a 1.x header` | `minVersion` 2.0 with `preserveConformance` on a PDF/A-1, 2 or 3 input |
-| `colorTarget <target> not applied: the converted file was not smaller than the original, so the original was kept` | the colour conversion made the file bigger |
-| `linearize not applied: the optimized file was not smaller than the original, so the original was kept` | compression could not make the file smaller, so there was nothing to linearize |
-| `linearize is not available in the WebAssembly build` | `linearize` in the WebAssembly build |
-| `target of <n> bytes not reached: <m> bytes is the smallest this document compresses to at quality 5 and 36 dpi. For image-only documents, rasterizePages can go further.` | a size target could not be met |
-| `digital signatures removed so the document could be compressed` | `removeSignatures` on a signed input, and the output was used |
-| `report unavailable: the PDF structure could not be read` | a report was requested but could not be built |
-
-While `preserveConformance` is on for a PDF/A input, these options are also switched off, without a warning, because they would break the standard: `removeStandardFonts`, `unembedAliasedFonts`, `removeOutputIntents` and `flattenIcc` for every level; `preferJpx` and `subsetFonts` for PDF/A-1; and `removeStructTree` for level A documents.
+Real failures are typed errors (`decrypt_failed`, `engine_error`, `timeout`, `cancelled`), never silent fallbacks. See [Errors](/errors).
 
 ## Hostile input is contained
 
-Malformed PDFs can crash or hang software. Hyper isolates parsing so a bad file doesn't take down your application or service.
+Broken or deliberately malicious PDFs can crash or hang software. The native surfaces run the engine in a separate worker process with a time limit, so a bad file ends that process, not your application or service.
 
-The engine is also fuzzed continuously through ClusterFuzzLite, on every pull request that touches it and again nightly, and every crash we find is turned into a permanent regression test.
+The engine is also fuzzed continuously with ClusterFuzzLite, on every pull request that touches it and again nightly, and every crash found becomes a permanent regression test.
 
+The WebAssembly build and the C API run inside your process. For untrusted input there, use a worker thread (WebAssembly) or run the `hpdf-worker` program (C). See [Running in production](/guides/production).

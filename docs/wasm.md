@@ -1,116 +1,203 @@
+---
+title: WebAssembly
+description: Reference for the hyper-compress-wasm package, which runs Hyper Compress in the browser and on any Node.js 22+ platform.
+---
+
 # WebAssembly
+
+The `hyper-compress-wasm` package is Hyper Compress compiled to WebAssembly. It takes the PDF as bytes and returns the compressed bytes, with no native files to install, so it runs in any modern browser and on any platform Node.js 22 or newer runs on.
 
 ```bash
 npm install hyper-compress-wasm
 ```
-
-The engine compiled to WebAssembly: byte-identical output to the native build, no native binaries, no postinstall downloads. It runs on any platform Node 22 or newer runs, which makes it the answer whenever the native package cannot install: Intel Macs, Alpine containers, FreeBSD.
-
-
-## A complete first program
-
-The API is buffer based. Save as `compress.mjs`:
 
 ```js
 import { readFile, writeFile } from 'node:fs/promises';
 import { compress } from 'hyper-compress-wasm';
 
 const input = new Uint8Array(await readFile('input.pdf'));
-const result = await compress(input, { preset: 'medium' });
+const result = await compress(input);
 
 await writeFile('output.pdf', result.data);
 console.log(`${result.originalSize} -> ${result.compressedSize} bytes`);
 ```
 
-Run with `node compress.mjs`. The first call loads the WebAssembly module (a few hundred milliseconds); it stays loaded for the life of the process, so subsequent compressions start instantly.
+Save it as `compress.mjs` and run `node compress.mjs`. The package is ESM only.
+
+Use it where the [native Node.js SDK](/node-sdk) does not install (Intel macOS, Alpine Linux, FreeBSD) and in the browser. On the native platforms, prefer the Node.js SDK: it adds a report, cancellation, timeouts and process isolation. [Platforms and surfaces](/platforms) compares them.
 
 ## compress(input, opts?)
 
 ```ts
-interface HyperWasmOptions {
-  preset?: 'low' | 'medium' | 'high' | 'lossless'; // default 'medium'
-  options?: Partial<HyperCompressOptions>;         // overrides on top of the preset
-  password?: string | null;                        // for encrypted input
-  targetSizeBytes?: number;                        // aim for a size; see metTarget
-}
-
-interface HyperWasmResult {
-  data: Uint8Array;              // the output PDF, never larger than the input
-  originalSize: number;
-  compressedSize: number;
-  signed: boolean;               // input was digitally signed and returned untouched
-  signaturesRemoved: boolean;  // removeSignatures stripped signatures so the document could be compressed
-  pdfa: PdfaLevel | null;        // the input's PDF/A claim
-  pdfaOutcome: 'none' | 'preserved' | 'claim-withdrawn';
-  metTarget: boolean | null;     // null when no target was set
-  warnings: string[];            // options requested but skipped, and why
-}
+function compress(input: Uint8Array, opts?: HyperWasmOptions): Promise<HyperWasmResult>
 ```
 
-The [guarantees](/guarantees) are identical to the native package: output never larger than input, signed documents untouched, PDF/A never left lying, and a size target searched to the engine's floor with the smallest achievable file returned on a miss. The [options](/options) are the same. Errors are thrown as `HyperError` with `code` `decrypt_failed` (wrong or missing password) or `engine_error` (anything else, including a module that failed to load).
+Compresses one PDF in memory. The first call loads the engine module, which takes a moment; later calls reuse it. A Node.js `Buffer` works as `input`.
 
-`pdfaOutcome` tells you what happened to a PDF/A input:
+### Parameters
+
+`input` is the PDF as a `Uint8Array`. `opts` is a `HyperWasmOptions` object:
+
+| Name | Type | Default | Description |
+|---|---|---|---|
+| `preset` | `'low' \| 'medium' \| 'high' \| 'lossless'` | `'medium'` | The starting set of [options](/options). An unknown name means `'medium'`. |
+| `options` | `Partial<HyperCompressOptions>` | `{}` | Overrides on top of the preset. Out-of-range numbers are clamped, wrong types and unknown choices become the option's fallback default, unknown keys are ignored. |
+| `password` | `string \| null` | `null` | Password for an encrypted input. Empty means none. Only the text before the first line break is used. |
+| `targetSizeBytes` | `number` | none | Aim for an output at or below this many bytes. Rounded down; 0 or less means no target. |
+
+### Returns
+
+`Promise<HyperWasmResult>`:
+
+| Name | Type | Description |
+|---|---|---|
+| `data` | `Uint8Array` | The output PDF. When Hyper keeps your original, this can be the same `Uint8Array` you passed in, not a copy. |
+| `originalSize` | `number` | Input size in bytes. |
+| `compressedSize` | `number` | Output size in bytes. Never larger than `originalSize`. |
+| `signed` | `boolean` | `true` when the input is digitally signed and was returned unchanged, byte for byte. Also `true` when you set `removeSignatures` but the compressed file was not smaller, so the signed original came back. |
+| `signaturesRemoved` | `boolean` | `true` when `removeSignatures` removed signatures and the compressed file was used. |
+| `pdfa` | `PdfaLevel \| null` | The PDF/A level the input claims, for example `{ part: 2, conformance: 'b' }`, or `null`. |
+| `pdfaOutcome` | `'none' \| 'preserved' \| 'claim-withdrawn'` | What happened to a PDF/A claim. See below. |
+| `metTarget` | `boolean \| null` | Whether the output is at or below `targetSizeBytes`. `null` when no target was set. |
+| `warnings` | `string[]` | Everything Hyper skipped and why. See [Warnings](/warnings). |
+
+With a password, a compressed `data` is decrypted. When Hyper keeps the original (nothing was smaller, or the file is signed), `data` is your original bytes, still encrypted.
+
+### pdfaOutcome
+
+PDF/A is the archiving version of PDF. A PDF/A file carries a claim in its metadata that it meets the standard.
 
 | Value | Meaning |
 |---|---|
-| `none` | the input does not claim PDF/A |
-| `preserved` | the output still meets the input's PDF/A level, because `preserveConformance` was on, the file is signed, or the original was returned |
-| `claim-withdrawn` | the output was changed without `preserveConformance`, so its PDF/A claim was removed from the metadata |
+| `none` | The input does not claim PDF/A. |
+| `preserved` | The output still carries the claim and meets it: `preserveConformance` was on, the input is signed, or the original was returned. That includes the rare case where the claim could not be removed from the compressed file; you then also get a warning. |
+| `claim-withdrawn` | Hyper changed the file without `preserveConformance`, so it removed the PDF/A claim from the metadata. |
 
-### What the WebAssembly build does not do
+See [PDF/A archives](/guides/pdfa).
 
-Compared with the [native SDK](/node-sdk), three things are missing:
+### Example
 
-- `linearize` is ignored, with the warning `linearize is not available in the WebAssembly build`.
-- There is no [compression report](/report).
-- There is no cancellation and no timeout; see below.
+```js
+import { readFile, writeFile } from 'node:fs/promises';
+import { compress } from 'hyper-compress-wasm';
 
-The full comparison is on [platforms and surfaces](/platforms#what-each-surface-can-do).
+const input = new Uint8Array(await readFile('input.pdf'));
+const result = await compress(input, {
+  preset: 'high',
+  password: 'hunter2',
+  targetSizeBytes: 1024 * 1024,
+});
+
+await writeFile('output.pdf', result.data);
+console.log(result.metTarget, result.warnings);
+```
+
+### Errors
+
+`compress` rejects with a `HyperError`:
+
+| Code | Message | When |
+|---|---|---|
+| `decrypt_failed` | `wrong or missing password` | The password is wrong. |
+| `decrypt_failed` | `the PDF is encrypted and needs a password` | The PDF needs a password and none was given. A file with only an owner password compresses without one. |
+| `engine_error` | `the input is not a PDF: no %PDF- header in its first 1024 bytes` | The input is not a PDF. |
+| `engine_error` | `wasm module failed to load: <reason>` | The engine module could not be loaded. The next call tries again. |
+| `engine_error` | the underlying error's message | Anything else went wrong inside the engine, for example running out of memory. |
+
+See [Errors](/errors) for every surface.
 
 ## verifyPassword(input, password)
 
+```ts
+function verifyPassword(input: Uint8Array, password: string): Promise<boolean>
+```
+
+Checks a password without compressing. It runs the same decryption as `compress`, so `true` means `compress` accepts the same password. Returns `true` for a PDF that is not encrypted, and `false` for input that is not a PDF.
+
 ```js
+import { readFile } from 'node:fs/promises';
 import { verifyPassword } from 'hyper-compress-wasm';
 
-const ok = await verifyPassword(bytes, 'hunter2');
+const input = new Uint8Array(await readFile('input.pdf'));
+console.log(await verifyPassword(input, 'hunter2'));
 ```
 
-Returns a `Promise<boolean>` without compressing. `true` means `compress()` will accept the same password. An unencrypted PDF returns `true` for any password.
+Rejects with `engine_error` when the engine module cannot be loaded.
 
-## Loading the module yourself
+## createEngine(load)
 
-The default exports load the bundled module the first time you call them. When you host the engine files yourself, as a browser build does, use `createEngine` with your own copy of `engine/hyper-compress.js`. This is what [`web/worker.js`](https://github.com/alam00000/bentopdf-hyper-compress/blob/main/web/worker.js) does:
+```ts
+function createEngine(load: () => Promise<HyperWasmModule>): HyperWasmEngine
+
+interface HyperWasmEngine {
+  init(): Promise<void>;
+  compress(input: Uint8Array, opts?: HyperWasmOptions): Promise<HyperWasmResult>;
+  verifyPassword(input: Uint8Array, password: string): Promise<boolean>;
+}
+```
+
+Creates an engine from a module loader you supply. The package's own `compress` and `verifyPassword` are one such engine, built with the bundled module. Use `createEngine` when you host the engine files yourself, which is how you run Hyper in a browser.
+
+- `load` is called the first time the engine is used, and its module is shared by every later call on that engine.
+- If `load` fails, the call rejects with `engine_error` and the next call calls `load` again.
+- `init()` loads the module now, so the first compression does not wait. It rejects with `engine_error` if loading fails.
+
+## In the browser
+
+The package's entry point is meant for Node.js and bundlers, and it exports only `.` (the root). To run Hyper in a browser page or worker, copy these folders from `node_modules/hyper-compress-wasm/` to your site, keeping their layout:
+
+```text
+engine/hyper-compress.js
+engine/hyper-compress.wasm
+lib/wasm/sdk.js
+lib/wasm/glue.js
+lib/sdk/node/*.js
+```
+
+Then load them from a module worker, so compression does not freeze the page:
 
 ```js
-import createModule from './engine/hyper-compress.js';   // copied from the package
-import { createEngine } from './lib/wasm/sdk.js';       // copied from the package
+// hyper-worker.js, started with new Worker('./hyper-worker.js', { type: 'module' })
+import createModule from './engine/hyper-compress.js';
+import { createEngine } from './lib/wasm/sdk.js';
 
 const engine = createEngine(() => createModule());
-await engine.init();                       // load now instead of on first use
-const result = await engine.compress(bytes, { preset: 'high' });
+
+self.onmessage = async (e) => {
+  try {
+    const result = await engine.compress(new Uint8Array(e.data.bytes), e.data.opts);
+    self.postMessage({ ok: true, result }, [result.data.buffer]);
+  } catch (err) {
+    self.postMessage({ ok: false, code: err.code, message: err.message });
+  }
+};
+
+engine.init().catch(() => {});
 ```
 
-`createEngine(load)` takes a function that returns the module and gives back `{ init, compress, verifyPassword }`. The module loads once and is shared by every call on that engine; if loading fails, the next call tries again.
-
-## Other exports
-
 ```js
-import {
-  HYPER_PRESETS,         // the four presets as full option objects
-  normalizeHyperOptions, // clamp and complete a partial options object
-  buildHyperTokens,      // the low-level engine tokens, for debugging
-  HyperError,
-} from 'hyper-compress-wasm';
+// main page
+const worker = new Worker('./hyper-worker.js', { type: 'module' });
+worker.onmessage = (e) => {
+  if (!e.data.ok) return console.error(e.data.code, e.data.message);
+  const blob = new Blob([e.data.result.data], { type: 'application/pdf' });
+  console.log('compressed to', e.data.result.compressedSize, 'bytes', URL.createObjectURL(blob));
+};
+
+document.querySelector('input[type=file]').addEventListener('change', async (e) => {
+  const bytes = await e.target.files[0].arrayBuffer();
+  worker.postMessage({ bytes, opts: { preset: 'medium' } }, [bytes]);
+});
 ```
 
-Types: `HyperWasmEngine`, `HyperWasmModule`, `HyperWasmOptions`, `HyperWasmResult`, `HyperCompressOptions`, `CompressLevel`, `PdfaLevel` and `HyperErrorCode`.
+`engine/hyper-compress.js` finds `hyper-compress.wasm` next to itself, so keep the two files together. Serve `.wasm` files with the `application/wasm` content type. The file never leaves the visitor's machine. [hyper.bentopdf.com](https://hyper.bentopdf.com) works this way; its source is in the repository's [`web/`](https://github.com/alam00000/bentopdf-hyper-compress/tree/main/web) folder, with the worker in [`web/worker.js`](https://github.com/alam00000/bentopdf-hyper-compress/blob/main/web/worker.js).
 
-## Blocking, and how to avoid it
+## Worker threads in Node.js
 
-Compression runs synchronously inside your process once the module is loaded; a large document can hold the Node event loop for several seconds. Fine in a script; in a server, run it inside a worker thread:
+Compression runs synchronously once the module is loaded, so a large file blocks the event loop for as long as it takes. In a server, run it in a worker thread:
 
 ```js
-// worker.js
+// worker.mjs
 import { parentPort, workerData } from 'node:worker_threads';
 import { compress } from 'hyper-compress-wasm';
 
@@ -119,27 +206,87 @@ parentPort.postMessage(result, [result.data.buffer]);
 ```
 
 ```js
-// main.js
+// main.mjs
 import { Worker } from 'node:worker_threads';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 
 const input = await readFile('input.pdf');
-const worker = new Worker('./worker.js', { workerData: { input, opts: { preset: 'medium' } } });
-worker.on('message', (result) => {
+const worker = new Worker(new URL('./worker.mjs', import.meta.url), {
+  workerData: { input, opts: { preset: 'medium' } },
+});
+worker.on('message', async (result) => {
+  await writeFile('output.pdf', result.data);
   console.log('compressed to', result.compressedSize, 'bytes');
 });
+worker.on('error', (err) => console.error(err));
 ```
 
-This keeps your server responsive and restores crash isolation: hostile input takes down the worker thread, not the process. If you want isolation, timeouts and cancellation managed for you, that is exactly what the [native package](/node-sdk) does with subprocesses.
+This keeps your server responsive. A crash in the engine ends the worker thread, which you see as an `error` event, not your process. To stop a run that takes too long, call `worker.terminate()`: that is the only way to interrupt a WebAssembly compression.
 
-## In the browser
+## Other exports
 
-The same engine powers [hyper.bentopdf.com](https://hyper.bentopdf.com), running in a Web Worker so visitors' files never leave their machines. The [repository's `web/` directory](https://github.com/alam00000/bentopdf-hyper-compress/tree/main/web) is the reference integration; this npm package's entry point targets Node, so for a browser build load `engine/hyper-compress.js` and the files under `lib/` from your own worker the way `web/worker.js` does.
+```js
+import {
+  HYPER_PRESETS,
+  normalizeHyperOptions,
+  buildHyperTokens,
+  HyperError,
+  createEngine,
+} from 'hyper-compress-wasm';
+```
+
+| Export | Description |
+|---|---|
+| `HYPER_PRESETS` | The four presets as complete option objects. Same as in the [Node.js SDK](/node-sdk#hyper-presets). |
+| `normalizeHyperOptions(raw)` | Checks and completes an options object. Same as in the [Node.js SDK](/node-sdk#normalizehyperoptions-raw). |
+| `buildHyperTokens(options)` | The engine's `id=value` tokens for complete options. Same as in the [Node.js SDK](/node-sdk#buildhypertokens-options). |
+| `HyperError` | The error class, with `code` and `message`. |
+| `createEngine(load)` | See [createEngine](#createengine-load). |
+
+There is no `resolveOptions` and no `HYPER_OPTION_DOCS` in this package.
+
+Types:
+
+| Type | Description |
+|---|---|
+| `HyperWasmOptions` | The `opts` parameter of `compress`. |
+| `HyperWasmResult` | The result of `compress`. |
+| `HyperWasmEngine` | What `createEngine` returns. |
+| `HyperWasmModule` | The loaded engine module that `load` resolves to. |
+| `HyperCompressOptions` | Every option, all required. See [Options](/options). |
+| `CompressLevel` | `'low' \| 'medium' \| 'high' \| 'lossless'` |
+| `PdfaLevel` | `{ part: number; conformance: string }`, `conformance` in lower case. |
+| `HyperErrorCode` | `'decrypt_failed' \| 'engine_error' \| 'timeout' \| 'cancelled'`. This package only produces the first two. |
+
+## What it does not do
+
+Compared with the [Node.js SDK](/node-sdk):
+
+| Missing | What happens |
+|---|---|
+| Linearization (fast web view) | `linearize` is ignored, with the warning `linearize is not available in the WebAssembly build`. |
+| The [compression report](/report) | There is no `report` option. |
+| Cancellation and timeouts | A run cannot be interrupted except by ending its worker. |
+| Process isolation | The engine runs inside your process or worker. |
+| Some warnings | The rasterize refusal and the "not applied" warnings for `colorTarget` and `linearize` are native only. See [Warnings](/warnings). |
+| Large files | Input, working copies and output share one memory space of at most 4 GB. |
+| Multiple threads | Each compression runs on one thread. |
+
+Compressed output is otherwise the same: the same presets, options and size target search, signed files returned unchanged, and output never larger than the input.
 
 ## Troubleshooting
 
-**Out of memory on very large files.** The wasm engine holds input, working set and output inside a 4 GB address space. For files in the hundreds of megabytes, prefer the native package, which streams through files on disk.
+**Out of memory on very large files.** The engine holds the input, its working copies and the output in at most 4 GB of memory. For files in the hundreds of megabytes, use the [Node.js SDK](/node-sdk), which works on files on disk.
 
-**The event loop stalls during compression.** Expected in-process; use the worker thread pattern above.
+**The event loop stalls during compression.** Expected; use the worker thread pattern above.
 
-**You need `AbortSignal` cancellation or hard timeouts.** Those exist only in the native package; wasm compression cannot be preempted mid-run.
+**`engine_error: wasm module failed to load` in the browser.** Check that `hyper-compress.wasm` is served next to `hyper-compress.js` with the `application/wasm` content type, and that the page loads the worker as a module (`{ type: 'module' }`).
+
+**You need cancellation or hard time limits.** Run each compression in its own worker and terminate it, or use the [Node.js SDK](/node-sdk).
+
+## Next steps
+
+- [Options](/options): every option, range and default.
+- [Warnings](/warnings): every warning string.
+- [Errors](/errors): every error, across all surfaces.
+- [Running in production](/guides/production): limits and untrusted uploads.

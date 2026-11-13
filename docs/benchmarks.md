@@ -1,3 +1,8 @@
+---
+title: Benchmarks
+description: How Hyper Compress compares with commercial SDKs and open source tools on real PDFs, and how to rerun every test yourself.
+---
+
 # Benchmarks
 
 Hyper has two public benchmarks: one against the commercial SDKs from PDF Tools, Apryse and Nutrient, and one against the open source tools Ghostscript, MuPDF and qpdf. Every file, result and script for both is in the repository, so you can rerun them.
@@ -72,3 +77,9 @@ The full methodology, per-file results and the complete document list live in [c
 ```bash
 make bench CORPUS=path/to/corpus
 ```
+
+## Next steps
+
+- [Guarantees](/guarantees): the promises behind the robustness numbers.
+- [Choose the right settings](/guides/choosing-settings): which preset matches each benchmark level.
+- [Running in production](/guides/production): speed and sizing on your own hardware.

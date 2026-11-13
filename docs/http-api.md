@@ -1,151 +1,429 @@
+---
+title: HTTP API
+description: Compress PDFs and check passwords over HTTP with the self-hosted Hyper Compress service, with every endpoint, parameter, header and error.
+---
+
 # HTTP API
 
-The [self-hosted Docker image](/self-hosting) serves a web interface at `/` and this API. Everything runs on your server; nothing leaves it. If you have not started the container yet, that is one command:
+The Hyper Compress service takes a PDF in the request body and returns the compressed PDF in the response body. It runs on your own server, so your files never leave it.
+
+Start the service with Docker:
 
 ```bash
-docker run -d -p 8080:8080 ghcr.io/alam00000/bentopdf-hyper-compress:latest
+docker run -d --name hyper -p 8080:8080 \
+  ghcr.io/alam00000/bentopdf-hyper-compress:latest
 ```
 
-## Your first request
+[Self-hosting](/self-hosting) covers configuration, TLS, scaling and Kubernetes.
 
-Send the PDF as the raw request body; the compressed PDF comes back as the response body.
+## Base URL
 
-```bash
-curl -o out.pdf --data-binary @in.pdf \
-  'http://localhost:8080/api/compress?preset=high'
+Every path on this page is relative to where you run the service. The examples use:
+
+```text
+http://localhost:8080
 ```
 
-Check what happened without opening the file:
-
-```bash
-curl -s -o out.pdf -D - --data-binary @in.pdf \
-  'http://localhost:8080/api/compress?preset=high' | grep -i '^x-'
-```
-
-```
-x-original-size: 2593056
-x-compressed-size: 913568
-x-signed: false
-x-pdfa:
-x-met-target:
-x-warnings:
-```
-
-`--data-binary` matters: plain `-d` would mangle the bytes.
+The service speaks plain HTTP. Put a reverse proxy in front of it for HTTPS; [Self-hosting](/self-hosting#put-tls-in-front) has Caddy and nginx examples.
 
 ## Authentication
 
-By default the API is open to anyone who can reach the port. Set `HYPER_API_TOKEN` on the container and every `/api/*` request must carry the token, in either header:
+By default the API is open to anyone who can reach the port. Set the `HYPER_API_TOKEN` environment variable and every request to `/api/compress` and `/api/verify-password` must carry that token in one of these headers:
 
-```bash
-curl -o out.pdf --data-binary @in.pdf \
+| Header | Example |
+|---|---|
+| `Authorization` | `Authorization: Bearer my-secret-token` |
+| `x-api-token` | `x-api-token: my-secret-token` |
+
+When both are sent, a `Bearer` value in `Authorization` wins.
+
+::: code-group
+
+```bash [Bearer]
+curl -o output.pdf --data-binary @input.pdf \
   -H 'Authorization: Bearer my-secret-token' \
   'http://localhost:8080/api/compress'
+```
 
-curl -o out.pdf --data-binary @in.pdf \
+```bash [x-api-token]
+curl -o output.pdf --data-binary @input.pdf \
   -H 'x-api-token: my-secret-token' \
   'http://localhost:8080/api/compress'
 ```
 
-A missing or wrong token gets `401` with `{"error":"unauthorized"}`. The web page at `/` and `/healthz` stay open, so health checks need no token. The web page calls the API without a token, so with a token set the page loads but cannot compress. If you want both the page and protection, leave the token unset and put a login in your reverse proxy instead.
+:::
+
+A missing or wrong token returns `401`:
+
+```json
+{"error":"unauthorized"}
+```
+
+What stays open when a token is set:
+
+- `GET /healthz`, so load balancers and probes need no token.
+- `GET /` and the files under `/web/` and `/dist/`, so the web page still loads.
+
+::: warning
+The web page cannot send a token. With `HYPER_API_TOKEN` set, the page loads but every compression from it fails with `401`. To protect a page that people use in the browser, leave the token unset and put a login in your reverse proxy instead.
+:::
+
+## Endpoints
+
+| Method and path | What it does | Token |
+|---|---|---|
+| [`POST /api/compress`](#post-api-compress) | Compresses the PDF in the body and returns the result. | required when set |
+| [`POST /api/verify-password`](#post-api-verify-password) | Checks a password against an encrypted PDF without compressing it. | required when set |
+| [`GET /healthz`](#get-healthz) | Reports that the service is up and how busy it is. | never |
+| [`GET /`](#get-and-static-files) | Serves the web page. | never |
+| [`GET /web/...`, `GET /dist/...`](#get-and-static-files) | Serves the web page's scripts, styles and fonts. | never |
+
+Any other method or path returns `404` with `{"error":"not_found"}`. That includes `GET /api/compress`: the API only takes `POST`.
 
 ## POST /api/compress
 
-### Query parameters
+Compresses one PDF. Send the PDF bytes as the raw request body, with any `Content-Type`. Choose settings with query parameters.
 
-| Parameter | Meaning |
-|---|---|
-| `preset` | `low`, `medium` (default), `high`, `lossless` or `custom` |
-| `options` | JSON object of [engine options](/options), at most 4096 characters, applied on top of the preset. Required when `preset=custom`; fields you leave unset fall back to the `medium` preset. Out of range values are clamped and unknown fields are ignored. |
-| `targetSizeBytes` | a size in bytes, greater than zero. Hyper searches toward it, down to quality 5 and 36 dpi; on a miss you get the smallest achievable file and `X-Met-Target: false` |
-| `brotli=true` | PDF 2.0 Brotli stream compression (opt in; the reader must support it) |
-| `preservePdfa=true` | keep a PDF/A input conformant; anything that would break the standard is skipped and reported in `X-Warnings`. Same as `preserveConformance` in `options`. |
+```http
+POST /api/compress?preset=high HTTP/1.1
+Host: localhost:8080
+Content-Type: application/pdf
 
-`brotli=true` and `preservePdfa=true` win over the same fields in `options`. Any other value for them, such as `1`, counts as not set.
-
-The request body is the PDF itself, with any `Content-Type`. Requests are queued before the body is read, so a queued client waits with its upload paused.
-
-Custom settings, URL-encoded by curl itself:
-
-```bash
-curl -o out.pdf --data-binary @in.pdf \
-  --url-query 'preset=custom' \
-  --url-query 'options={"imageQuality":35,"grayscale":true}' \
-  'http://localhost:8080/api/compress'
+%PDF-1.7 ...
 ```
 
-`--url-query` needs curl 7.87 or newer. Do not use `-G` here: it moves the PDF itself into the URL.
+### Query parameters
 
-### Headers
+| Name | Type | Default | Description |
+|---|---|---|---|
+| `preset` | string | `medium` | `low`, `medium`, `high`, `lossless` or `custom`. Case-sensitive. `custom` starts from `medium` and requires `options`. |
+| `options` | JSON object | none | [Options](/options) applied on top of the preset. At most 4096 UTF-16 code units after URL decoding. |
+| `targetSizeBytes` | number | none | Target size in bytes, greater than zero. Decimals are rounded down. Hyper searches for settings that fit; see [Hit a file size target](/guides/size-targets). |
+| `brotli` | `true` | not set | `brotli=true` turns on PDF 2.0 Brotli stream compression. Same as `"brotli": true` in `options`. |
+| `preservePdfa` | `true` | not set | `preservePdfa=true` keeps a PDF/A input (the archiving version of PDF) conformant. Same as `"preserveConformance": true` in `options`. See [PDF/A archives](/guides/pdfa). |
 
-| Header | Direction | Meaning |
+How the parameters combine:
+
+- `brotli=true` and `preservePdfa=true` override the same fields in `options`. Any other value, such as `1` or `yes`, counts as not set, and then the value from `options` (or the preset) applies.
+- Fields in `options` that are not option names are ignored.
+- Numbers outside an option's range are clamped to the range. A value of the wrong type, such as `"50"` instead of `50`, falls back to that option's default. [Options](/options) lists every range and default.
+- An empty value, such as `targetSizeBytes=`, counts as not set.
+- If a parameter appears twice, the first one wins. Unknown parameters are ignored.
+
+### Request headers
+
+| Name | Required | Description |
 |---|---|---|
-| `X-Password` | request | password for encrypted input |
-| `X-Original-Size` | response | input size in bytes |
-| `X-Compressed-Size` | response | output size in bytes; never larger than the input |
-| `Authorization` or `x-api-token` | request | the API token, when `HYPER_API_TOKEN` is set |
-| `Content-Type` | response | `application/pdf` |
-| `X-Signed` | response | `true` when a signed input was returned untouched |
-| `X-Pdfa` | response | the input's PDF/A claim, like `2b`, or empty |
-| `X-Met-Target` | response | `true` or `false` when a target was set, else empty |
-| `X-Warnings` | response | URL-encoded JSON array of options skipped for safety, else empty |
+| `X-Password` | no | Password for an encrypted PDF, as plain ASCII. Only the first line is used. See [Encrypted PDFs](/guides/encrypted-pdfs). |
+| `X-Password-Encoded` | no | The same password as UTF-8, percent-encoded like JavaScript's `encodeURIComponent`. Use it for any password with non-ASCII characters. A literal `+` stays `+`. Wins over `X-Password` when both are sent. |
+| `Authorization` or `x-api-token` | when `HYPER_API_TOKEN` is set | The API token. See [Authentication](#authentication). |
 
-Decode warnings in one line: `decodeURIComponent(header)` then `JSON.parse`.
+### Response
+
+On success the status is `200` and the body is the PDF.
+
+| Header | Example | Description |
+|---|---|---|
+| `Content-Type` | `application/pdf` | Always `application/pdf` on success. |
+| `X-Original-Size` | `2593056` | Input size in bytes. |
+| `X-Compressed-Size` | `915051` | Output size in bytes. Never larger than `X-Original-Size`. |
+| `X-Signed` | `false` | `true` when the input was digitally signed and returned untouched. See [Signed documents](/guides/signed-documents). |
+| `X-Signatures-Removed` | `false` | `true` when `removeSignatures` removed the signatures and the compressed file was returned. |
+| `X-Pdfa` | `2b` | The PDF/A part and level the input claims, or empty. |
+| `X-Pdfa-Preserved` | `false` | `true` when the output still claims that PDF/A level. |
+| `X-Met-Target` | `true` | `true` or `false` when you sent `targetSizeBytes`, empty otherwise. |
+| `X-Warnings` | `%5B%22...%22%5D` | URL-encoded JSON array of [warnings](/warnings), or empty when there are none. See [Decode X-Warnings](#decode-x-warnings). |
+
+When Hyper cannot make the file smaller, the response is your original bytes and the two size headers are equal. That is a result, not an error.
 
 ### Errors
 
-Errors are JSON bodies with an `error` code and the matching HTTP status:
+Errors return a JSON body with an `error` code. Some add extra fields.
 
-| Status | Code | Meaning | What to do |
+| Status | `error` | Extra fields | When |
 |---|---|---|---|
-| 400 | `not_a_pdf` | body does not start with a PDF header | send the file with `--data-binary` |
-| 400 | `bad_preset` | unknown preset | the response lists valid ones |
-| 400 | `bad_target_size` | `targetSizeBytes` is not a number greater than zero | send a byte count |
-| 400 | `bad_options` | options JSON invalid, not an object, or over 4096 characters | fix the JSON |
-| 400 | `options_required` | `preset=custom` without `options` | add the options parameter |
-| 400 | `decrypt_failed` | wrong or missing password | send `X-Password` |
-| 401 | `unauthorized` | `HYPER_API_TOKEN` is set and the token is missing or wrong | send the token |
-| 404 | `not_found` | unknown path or method | check the URL; the API only takes `POST` |
-| 413 | `too_large` | body exceeds the upload limit; the response includes `maxBytes` | raise `HYPER_MAX_UPLOAD_MB` |
-| 429 | `busy` | queue full; the response includes `detail` | retry with backoff, or raise `HYPER_QUEUE` |
-| 500 | `engine_error` | the engine could not process the document | check the file opens in a viewer; report it if it does |
-| 500 | `cancelled` | the job was stopped | retry |
-| 500 | `internal` | an unexpected server error | check the container logs |
-| 504 | `timeout` | job exceeded the per-job timeout | raise `HYPER_TIMEOUT_MS` |
+| `400` | `bad_preset` | `presets`: the valid names | `preset` is not one of the five names. |
+| `400` | `bad_target_size` | | `targetSizeBytes` is not a number greater than zero. |
+| `400` | `bad_options` | | `options` is not valid JSON, is not an object, or is over 4096 UTF-16 code units. |
+| `400` | `options_required` | | `preset=custom` without `options`. |
+| `400` | `not_a_pdf` | | The body is shorter than 5 bytes or does not start with `%PDF`. |
+| `400` | `decrypt_failed` | | The PDF needs a password to open and none was sent, or the password is wrong. |
+| `401` | `unauthorized` | | `HYPER_API_TOKEN` is set and the token is missing or wrong. |
+| `413` | `too_large` | `maxBytes`: the limit in bytes | The body is larger than `HYPER_MAX_UPLOAD_MB`. |
+| `429` | `busy` | `detail`: `"queue full, retry later"` | All slots are busy and the queue is full. The response has a `Retry-After: 1` header. |
+| `500` | `engine_error` | | The engine could not process the document. |
+| `500` | `cancelled` | | The job was stopped. The service does not stop jobs today, so you should not see this code. |
+| `500` | `internal` | | The server could not create, write or read its temporary files. |
+| `504` | `timeout` | | The job, or one step of it, ran longer than `HYPER_TIMEOUT_MS`. |
 
-Example error body:
+Example bodies:
+
+```json
+{"error":"bad_preset","presets":["low","medium","high","lossless","custom"]}
+```
 
 ```json
 {"error":"too_large","maxBytes":524288000}
 ```
 
-## POST /api/verify-password
-
-Send the encrypted PDF as the body with `X-Password`; returns `{"valid":true}` or `{"valid":false}` without compressing. `true` means `/api/compress` will accept the same password. Useful for validating a user's password before queueing real work. An unencrypted PDF returns `{"valid":true}` for any password.
-
-It shares the queue, upload limit and token with `/api/compress`, so it can also return `401`, `413`, `429` and `500` with the same bodies. The check itself has a 60 second limit.
-
-```bash
-curl -s --data-binary @locked.pdf -H 'X-Password: hunter2' \
-  http://localhost:8080/api/verify-password
+```json
+{"detail":"queue full, retry later","error":"busy"}
 ```
 
-## GET /healthz
+Field order in error bodies is not fixed; parse them as JSON. [Errors](/errors) explains each code and what to do about it.
+
+### Examples
+
+Compress with the default `medium` preset:
 
 ```bash
-curl -s http://localhost:8080/healthz
+curl -o output.pdf --data-binary @input.pdf \
+  'http://localhost:8080/api/compress'
+```
+
+Use `--data-binary`. Plain `-d` strips line breaks and breaks the PDF.
+
+Show the result headers without opening the file:
+
+```bash
+curl -s -o output.pdf -D - --data-binary @input.pdf \
+  'http://localhost:8080/api/compress?preset=high' | grep -i '^x-'
+```
+
+```text
+x-original-size: 2593056
+x-compressed-size: 915051
+x-signed: false
+x-signatures-removed: false
+x-pdfa:
+x-pdfa-preserved: false
+x-met-target:
+x-warnings:
+```
+
+Send options and let curl URL-encode them with `--url-query` (curl 7.87 or newer):
+
+```bash
+curl -o output.pdf --data-binary @input.pdf \
+  --url-query 'preset=custom' \
+  --url-query 'options={"imageQuality":35,"grayscale":true}' \
+  'http://localhost:8080/api/compress'
+```
+
+::: warning
+Do not use `-G` with `--data-binary`. `-G` moves the request body into the URL, so curl sends your PDF as a query string instead of a body.
+:::
+
+For a password with non-ASCII characters, percent-encode it as UTF-8 and send `X-Password-Encoded` instead, for example `-H 'X-Password-Encoded: p%C3%A4sswort'` for `pässwort`. Non-ASCII bytes in `X-Password` make the connection drop.
+
+Aim for a size and send a password:
+
+```bash
+curl -o output.pdf --data-binary @input.pdf \
+  -H 'X-Password: hunter2' \
+  --url-query 'targetSizeBytes=2097152' \
+  'http://localhost:8080/api/compress'
+```
+
+The same request from other languages:
+
+::: code-group
+
+```js [Node.js]
+import { readFile, writeFile } from 'node:fs/promises';
+
+const params = new URLSearchParams({
+  preset: 'custom',
+  options: JSON.stringify({ imageQuality: 35, grayscale: true }),
+});
+
+const res = await fetch(`http://localhost:8080/api/compress?${params}`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/pdf' },
+  body: await readFile('input.pdf'),
+});
+
+if (!res.ok) {
+  const err = await res.json();
+  throw new Error(`HTTP ${res.status}: ${err.error}`);
+}
+
+await writeFile('output.pdf', Buffer.from(await res.arrayBuffer()));
+
+const warningsHeader = res.headers.get('x-warnings');
+const warnings = warningsHeader ? JSON.parse(decodeURIComponent(warningsHeader)) : [];
+
+console.log(`${res.headers.get('x-original-size')} -> ${res.headers.get('x-compressed-size')} bytes`);
+console.log(warnings);
+```
+
+```python [Python]
+import json
+from urllib.parse import unquote
+
+import requests
+
+with open("input.pdf", "rb") as f:
+    res = requests.post(
+        "http://localhost:8080/api/compress",
+        params={
+            "preset": "custom",
+            "options": json.dumps({"imageQuality": 35, "grayscale": True}),
+        },
+        headers={"Content-Type": "application/pdf"},
+        data=f,
+    )
+
+if not res.ok:
+    raise RuntimeError(f"HTTP {res.status_code}: {res.json()['error']}")
+
+with open("output.pdf", "wb") as out:
+    out.write(res.content)
+
+header = res.headers.get("x-warnings", "")
+warnings = json.loads(unquote(header)) if header else []
+
+print(f"{res.headers['x-original-size']} -> {res.headers['x-compressed-size']} bytes")
+print(warnings)
+```
+
+:::
+
+The Node.js sample uses the built-in `fetch` of Node.js 22; save it as `compress.mjs`. The Python sample needs the [`requests`](https://pypi.org/project/requests/) package (`pip install requests`).
+
+### Decode X-Warnings
+
+`X-Warnings` is a JSON array of strings, URL-encoded so it fits in a header. Decode it in two steps: URL-decode, then parse the JSON. An empty header means no warnings.
+
+| Language | Code |
+|---|---|
+| JavaScript | `h ? JSON.parse(decodeURIComponent(h)) : []` |
+| Python | `json.loads(urllib.parse.unquote(h)) if h else []` |
+
+A missed size target, for example, gives:
+
+```text
+x-met-target: false
+x-warnings: %5B%22target%20of%201000%20bytes%20not%20reached%3A%20999426%20bytes%20is%20the%20smallest%20this%20document%20compresses%20to%20at%20quality%205%20and%2036%20dpi.%20For%20image-only%20documents%2C%20rasterizePages%20can%20go%20further.%22%5D
+```
+
+which decodes to:
+
+```json
+["target of 1000 bytes not reached: 999426 bytes is the smallest this document compresses to at quality 5 and 36 dpi. For image-only documents, rasterizePages can go further."]
+```
+
+### How a request is handled
+
+1. The service checks the token, then the query parameters. Problems here return `401` or `400` right away, before any upload is read.
+2. The request waits for a free slot. Up to `HYPER_CONCURRENCY` jobs run at once and up to `HYPER_QUEUE` more wait in order. When the queue is full the request gets `429` at once, with `Retry-After: 1`.
+3. Only when a slot is free does the service read the body. A waiting client's upload stays paused until then.
+4. A body over `HYPER_MAX_UPLOAD_MB` gets `413` as soon as the limit is passed. The service stops reading, so some clients report a closed connection instead of the `413` body.
+5. The PDF is written to a fresh temporary folder, compressed, sent back and deleted.
+
+`HYPER_TIMEOUT_MS` limits the whole job and each step inside it. When a client disconnects, the job still runs to the end; the result is discarded.
+
+An encrypted PDF that needs a password to open, sent without one, gets `400` `decrypt_failed`. A PDF with only an owner password (one that limits printing or editing but opens without a password) compresses without one, and the output keeps that owner password.
+
+## POST /api/verify-password
+
+Checks whether a password opens an encrypted PDF, without compressing it. Use it to check a user's password before you queue real work.
+
+Send the PDF as the body and the password in `X-Password`, or in `X-Password-Encoded` when it has non-ASCII characters.
+
+### Request headers
+
+| Name | Required | Description |
+|---|---|---|
+| `X-Password` | no | The password to check, as plain ASCII. Missing means an empty password. |
+| `X-Password-Encoded` | no | The password as percent-encoded UTF-8. Wins over `X-Password`. |
+| `Authorization` or `x-api-token` | when `HYPER_API_TOKEN` is set | The API token. |
+
+### Response
+
+Status `200` with a JSON body:
+
+| Field | Type | Description |
+|---|---|---|
+| `valid` | boolean | `true` when `/api/compress` would accept the same password for this file. |
+
+```bash
+curl -s --data-binary @input.pdf -H 'X-Password: hunter2' \
+  'http://localhost:8080/api/verify-password'
 ```
 
 ```json
-{"ok":true,"active":0,"queued":0}
+{"valid":true}
 ```
 
-`active` is jobs currently compressing, `queued` is jobs waiting for a slot. Wire it into your load balancer or uptime monitoring as is.
+What to expect:
 
-## The web interface
+- An unencrypted PDF returns `{"valid":true}` for any password.
+- A body that is not a PDF returns `{"valid":false}`. This endpoint does not check for `%PDF`.
+- The check has its own 60 second limit; `HYPER_TIMEOUT_MS` does not apply. A check that runs out of time returns `500` `internal`.
 
-`GET /` serves the same page as [hyper.bentopdf.com](https://hyper.bentopdf.com), wired to this server's API instead of the in-browser engine, so files are compressed on the server. Its scripts, styles and fonts are served from `/web/` and `/dist/`.
+### Errors
 
-## Limits and tuning
+It shares the token, the upload limit and the queue with `/api/compress`:
 
-Concurrency, queue depth, upload size and timeout are environment variables on the container. Defaults: 2 parallel jobs, a queue of 8, 500 MB uploads, 10 minutes per job. See [Self-Hosting](/self-hosting#configuration).
+| Status | `error` | When |
+|---|---|---|
+| `401` | `unauthorized` | The token is missing or wrong. |
+| `413` | `too_large` | The body is larger than `HYPER_MAX_UPLOAD_MB`. The body includes `maxBytes`. |
+| `429` | `busy` | The queue is full. The body includes `detail`, and the response has `Retry-After: 1`. |
+| `500` | `internal` | The check could not run: it passed 60 seconds, the server could not write its temporary file, or it cannot find `qpdf`. |
+
+## GET /healthz
+
+Reports that the service is up and how busy it is. It never needs a token and never waits in the queue.
+
+```bash
+curl -s 'http://localhost:8080/healthz'
+```
+
+```json
+{"active":0,"ok":true,"queued":0}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `ok` | boolean | Always `true` when the service answers. |
+| `active` | integer | Jobs running now, at most `HYPER_CONCURRENCY`. |
+| `queued` | integer | Jobs waiting for a slot, at most `HYPER_QUEUE`. |
+
+`queued` close to `HYPER_QUEUE` for long stretches means you need more concurrency or more instances. [Self-hosting](/self-hosting#health-checks) shows how to wire this into Docker Compose and Kubernetes.
+
+## GET / and static files
+
+`GET /` serves the same page as [hyper.bentopdf.com](https://hyper.bentopdf.com), changed to send files to this service's API instead of compressing them in the browser. Files are compressed on the server.
+
+The page loads its scripts, styles and fonts from two folders:
+
+| Path | Serves |
+|---|---|
+| `/web/...` | the page's own scripts, styles, fonts, icons and images |
+| `/dist/...` | the preset and option definitions the page shares with the Node.js SDK |
+
+Only names ending in `.js`, `.css`, `.woff2`, `.svg` or `.png` are served, and only when the path before the extension contains letters, digits, `/`, `_` and `-`. Anything else, or a missing file, returns `404` with `{"error":"not_found"}`.
+
+If the service cannot find its web files, `GET /` returns a short placeholder page and the API keeps working. [Self-hosting](/self-hosting#environment-variables) explains `HYPER_ROOT`, which points the service at them.
+
+## Limits
+
+| Limit | Default | Set with |
+|---|---|---|
+| Upload size | 500 MB | `HYPER_MAX_UPLOAD_MB` |
+| Jobs at once | 2 | `HYPER_CONCURRENCY` |
+| Jobs waiting | 8 | `HYPER_QUEUE` |
+| Time per job | 10 minutes | `HYPER_TIMEOUT_MS` |
+| `options` length | 4096 UTF-16 code units | fixed |
+| Password check time | 60 seconds | fixed |
+
+[Self-hosting](/self-hosting#environment-variables) lists every setting with its allowed range.
+
+## Next steps
+
+- [Self-hosting](/self-hosting): configure, secure and scale the service.
+- [Options](/options): every setting you can pass in `options`.
+- [Errors](/errors): what each error code means and how to handle it.
+- [Running in production](/guides/production): batches, retries and untrusted uploads.

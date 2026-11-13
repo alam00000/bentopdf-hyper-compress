@@ -1,120 +1,163 @@
-# Getting Started
+---
+title: Quickstart
+description: Compress your first PDF with Hyper Compress in a few minutes, from the terminal, Node.js, an HTTP service or the browser.
+---
 
-Hyper Compress can be used in a few different ways, but the engine underneath is always the same. Whether you're using the CLI, Node SDK, WebAssembly build, or something else, you'll get the same presets, the same [options](/options), and the same result from the same settings.
+# Quickstart
 
-Pick the way you want to use Hyper, and this guide will help you compress your first PDF.
+Compress your first PDF with Hyper Compress. By the end of this page you will have a smaller PDF, know how to read the result, and know which way of running Hyper fits your project.
 
-## The fastest way: your browser
+Every way of running Hyper uses the same engine, the same presets and the same [options](/options), so the same settings give the same file everywhere.
 
-If you just want to compress a PDF, you do not need to install anything.
+## Before you begin
 
-1. Open [hyper.bentopdf.com](https://hyper.bentopdf.com).
-2. Drop your PDF onto the page, or click to choose it.
-3. Pick a compression level and press Compress.
-4. Save the result.
+- A PDF to try. Any file works; a scanned document or a report with photos shows the biggest savings.
+- For the terminal or Node.js: [Node.js](https://nodejs.org) 22 or newer on macOS (Apple silicon), Linux (x64 or ARM64) or Windows (x64). Check with `node --version`.
+- For the HTTP service: [Docker](https://docs.docker.com/get-docker/).
+- For the browser: nothing.
 
-The engine runs as WebAssembly inside your browser. Your file is never uploaded anywhere; you can load the page, disconnect from the internet, and it still works.
+::: tip
+Just want a smaller file right now? Open [hyper.bentopdf.com](https://hyper.bentopdf.com) and drop your PDF on the page. It runs entirely in your browser; your file is never uploaded.
+:::
 
-## From the terminal
+## 1. Install
 
-### What you need first
+::: code-group
 
-Node.js 22 or newer. Check what you have:
-
-```bash
-node --version
-```
-
-If that prints `v22.0.0` or higher you are ready. If it prints something lower, or `command not found`, install the current LTS from [nodejs.org](https://nodejs.org) and open a new terminal.
-
-Supported platforms for the native engine: macOS on Apple silicon, Linux x64, Linux ARM64, Windows x64. On anything else (an Intel Mac, Alpine Linux), use the [WebAssembly package](/wasm) instead. The full list is on [platforms and surfaces](/platforms).
-
-### Install and run
-
-```bash
+```bash [CLI]
 npm install -g hyper-compress
-hyper input.pdf
 ```
 
-You should see something like:
-
-```
-input-compressed.pdf
-  2593056 -> 1250960 bytes (52% smaller)
+```bash [Node.js]
+npm install hyper-compress
 ```
 
-That is the whole workflow. The first line is where the result was written, next to your input as `<input>-compressed.pdf`; the second is the input size, the output size, and the saving. To choose the output name yourself, pass it as a second argument: `hyper input.pdf smaller.pdf`.
-
-Prefer not to install globally? `npx hyper input.pdf` works from any folder after `npm install hyper-compress` in that folder.
-
-Common variations:
-
-```bash
-hyper input.pdf out.pdf --preset high        # smallest output
-hyper scan.pdf out.pdf --target-size 2MB     # aim for a size
-hyper locked.pdf out.pdf --password hunter2  # encrypted input
+```bash [Docker]
+docker run -d --name hyper -p 8080:8080 \
+  ghcr.io/alam00000/bentopdf-hyper-compress:latest
 ```
 
-Every flag is documented on the [CLI page](/cli), including what to do when something goes wrong.
+```bash [WebAssembly]
+npm install hyper-compress-wasm
+```
 
-## From Node.js code
+:::
 
-Same install, used as a library:
+The npm package installs the engine for your platform automatically, with no download scripts. The Docker image starts a private compression service with a web page and an [HTTP API](/http-api) on port 8080.
 
-```js
+## 2. Compress a PDF
+
+::: code-group
+
+```bash [CLI]
+hyper input.pdf output.pdf
+```
+
+```js [Node.js]
 import { compress } from 'hyper-compress';
 
 const result = await compress({
   sourcePath: 'input.pdf',
   savePath: 'output.pdf',
-  preset: 'medium',
 });
 
 console.log(`${result.originalSize} -> ${result.compressedSize} bytes`);
 ```
 
-Save that as `compress.mjs` next to an `input.pdf` and run `node compress.mjs`. The [Node SDK page](/node-sdk) walks through passwords, target sizes, cancellation, batching and error handling.
-
-## As a service for your team
-
-If you have Docker installed, one command gives you a private compression service with a web page and an API:
-
-```bash
-docker run -d -p 8080:8080 ghcr.io/alam00000/bentopdf-hyper-compress:latest
+```bash [HTTP]
+curl -o output.pdf --data-binary @input.pdf \
+  'http://localhost:8080/api/compress'
 ```
 
-Open `http://localhost:8080` for the interface, or POST a PDF to `/api/compress`. Everything runs on your machine. Setup, tuning and TLS are covered in [Self-Hosting](/self-hosting), the API in [HTTP API](/http-api).
+```js [WebAssembly]
+import { readFile, writeFile } from 'node:fs/promises';
+import { compress } from 'hyper-compress-wasm';
 
-## The presets
+const input = new Uint8Array(await readFile('input.pdf'));
+const result = await compress(input);
 
-Every surface uses the same four presets. Pick by what the document is for:
+await writeFile('output.pdf', result.data);
+console.log(`${result.originalSize} -> ${result.compressedSize} bytes`);
+```
 
-| Preset | Image quality | Max DPI | Use for |
-|---|---|---|---|
-| `low` | 80 | 200 | archival copies and minimal visible change |
-| `medium` | 50 | 150 | the default; sharing and email |
-| `high` | 20 | 72 | smallest output and screen reading |
-| `lossless` | off | off | no image re-encoding, pixel-identical images |
+:::
 
-A preset is just a complete options object; start from one and override any field. The [options reference](/options) lists every option and exactly what each preset sets.
+With no preset, Hyper uses `medium`: images at quality 50 and at most 150 dpi, fonts subset, duplicates merged. That suits documents you share and email.
 
-## Three things to know before you start
+From the CLI you see:
 
-1. **The output is never larger than the input.** Your PDF will never come back bigger. If Hyper can't make it smaller, you get the original file back instead. 
-2. **Some documents come back unchanged on purpose.** A digitally signed PDF is returned untouched, because compressing it would break the signature. The result tells you when this happened.
-3. **Hyper tells you when it skips something.** Results carry a `warnings` list (the CLI prints them) explaining anything that was skipped for safety, like rasterizing a document that still has selectable text.
+```text
+output.pdf
+  2593056 -> 1250960 bytes (52% smaller)
+```
 
-The full behavioral contract is on the [guarantees](/guarantees) page.
+The first line is where the result was written. The second is the input size, the output size and the saving. Leave out `output.pdf` and the CLI writes `input-compressed.pdf` beside the input.
 
+## 3. Read the result
 
+Hyper never fails silently and never makes a file bigger. Three things in the result tell you what happened:
 
-## Where next
+| What you see | What it means |
+|---|---|
+| Output size equals input size | Hyper could not make this file smaller, so it returned your original bytes. This is an outcome, not an error. |
+| `signed: true`, or `[signed: original preserved]` in the CLI | The PDF has a digital signature. Hyper returned it untouched so the signature stays valid. See [Signed documents](/guides/signed-documents). |
+| A `warning:` line, or an entry in `warnings` | Hyper skipped something you asked for because it was unsafe for this file, and says why. See [Warnings](/warnings). |
 
-- All flags and troubleshooting: [CLI](/cli)
-- The full programming interface: [Node SDK](/node-sdk)
-- Running without native binaries: [WebAssembly](/wasm)
-- Your own service: [Self-Hosting](/self-hosting) and the [HTTP API](/http-api)
-- Every option with defaults and ranges: [Options reference](/options)
-- What changed inside a file: [Compression report](/report)
-- Which surface runs where and does what: [Platforms and surfaces](/platforms)
-- What was measured against PDF Tools, Apryse, Nutrient, Ghostscript, MuPDF and qpdf: [Benchmarks](/benchmarks)
+In Node.js all three are on the result object:
+
+```js
+console.log(result.signed);    // true if the input was signed and returned untouched
+console.log(result.warnings);  // [] when every requested option was applied
+```
+
+## 4. Choose a preset
+
+Pick a preset by what the document is for:
+
+| Preset | Images | Use it for |
+|---|---|---|
+| `low` | quality 80, up to 200 dpi | archiving and printing; minimal visible change |
+| `medium` | quality 50, up to 150 dpi | the default; sharing and email |
+| `high` | quality 20, up to 72 dpi; standard fonts left to the viewer | the smallest file, for reading on screen |
+| `lossless` | images are not re-encoded | files where every pixel must stay the same |
+
+::: code-group
+
+```bash [CLI]
+hyper input.pdf output.pdf --preset high
+```
+
+```js [Node.js]
+import { compress } from 'hyper-compress';
+
+await compress({ sourcePath: 'input.pdf', savePath: 'output.pdf', preset: 'high' });
+```
+
+```bash [HTTP]
+curl -o output.pdf --data-binary @input.pdf \
+  'http://localhost:8080/api/compress?preset=high'
+```
+
+:::
+
+A preset is a complete set of [options](/options). Override any of them on top of a preset; [Choose the right settings](/guides/choosing-settings) shows how.
+
+## Which way should you run Hyper?
+
+| You want to | Use | Runs on |
+|---|---|---|
+| Compress files by hand or in shell scripts | [CLI](/cli) | macOS (Apple silicon), Linux x64 and ARM64, Windows x64 |
+| Compress from a Node.js app or server | [Node.js SDK](/node-sdk) | same as the CLI |
+| Give other services or teams an API | [HTTP API](/http-api) on [Docker](/self-hosting) | any Docker host, x64 or ARM64 |
+| Compress in the browser, or where the native engine does not install | [WebAssembly](/wasm) | any browser, any Node.js 22+ platform |
+| Embed Hyper in a Rust program | [Rust crate](/rust) | the native platforms above |
+| Embed Hyper from C, C++ or another language | [C API](/c-api) | prebuilt for macOS Apple silicon, builds elsewhere |
+
+[Platforms and surfaces](/platforms) compares exactly what each one supports.
+
+## Next steps
+
+- [Choose the right settings](/guides/choosing-settings): presets, overrides and what each option costs.
+- [Hit a file size target](/guides/size-targets): ask for "under 2 MB" and let Hyper search.
+- [Running in production](/guides/production): batches, concurrency and untrusted uploads.
+- [Guarantees](/guarantees): what Hyper promises never to do to your files.

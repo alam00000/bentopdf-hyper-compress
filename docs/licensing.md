@@ -1,6 +1,17 @@
+---
+title: Licensing
+description: Use Hyper Compress free under the AGPL, or under a commercial license in closed-source products and services.
+---
+
 # Licensing
 
-Hyper Compress is dual-licensed.
+Hyper Compress is dual-licensed. Pick the license that matches how you ship your product:
+
+| You are building | License |
+|---|---|
+| Open source software that publishes its source code | [AGPL-3.0](#open-source-agpl-3-0), free |
+| A closed-source app, website or internal tool | [Commercial](#commercial-license), from $99 a year |
+| An SDK, a reseller product, or Hyper as a hosted API for others | [OEM](#commercial-license), from $1,999 a year |
 
 ## Open source: AGPL-3.0
 
@@ -38,7 +49,7 @@ BentoPDF's commercial license already includes Hyper as a bundled component for 
 
 ## Third-party components
 
-Bundled components keep their own licenses: PDFium and its dependencies (BSD-3-Clause and component licenses), qpdf and jbig2enc and Highway (Apache-2.0), jpegli (BSD-3-Clause), Leptonica (BSD-style), the AFDKO subset (Apache-2.0) and the DM Sans font (SIL OFL 1.1). The full list with locations is in [NOTICE.md](https://github.com/alam00000/bentopdf-hyper-compress/blob/main/NOTICE.md).
+Bundled components keep their own licenses: PDFium and its dependencies (BSD-3-Clause and component licenses), qpdf and jbig2enc and Highway (Apache-2.0), jpegli (BSD-3-Clause), Leptonica (BSD-style), the AFDKO subset (Apache-2.0), the DM Sans font (SIL OFL 1.1), and the Rust crates linked into the Node.js addon, CLI and server (all MIT, Apache-2.0, ISC, Unlicense or Unicode-3.0). The full list with locations is in [NOTICE.md](https://github.com/alam00000/bentopdf-hyper-compress/blob/main/NOTICE.md).
 
 ## Contributing
 
