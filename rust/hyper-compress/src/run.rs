@@ -1,8 +1,8 @@
 use std::io::{Read, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -71,18 +71,40 @@ fn drain<R: Read + Send + 'static>(r: Option<R>) -> thread::JoinHandle<Vec<u8>> 
     })
 }
 
-pub fn run(bin: &Path, args: &[String], stdin: Option<&[u8]>, capture_stdout: bool, limits: &Limits) -> Output {
-    let failed = Output { ok: false, timed_out: false, code: None, stdout: Vec::new(), stderr: String::new() };
+pub fn run(
+    bin: &Path,
+    args: &[String],
+    stdin: Option<&[u8]>,
+    capture_stdout: bool,
+    limits: &Limits,
+) -> Output {
+    let failed = Output {
+        ok: false,
+        timed_out: false,
+        code: None,
+        stdout: Vec::new(),
+        stderr: String::new(),
+    };
     let mut cmd = Command::new(bin);
     cmd.args(args)
-        .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
-        .stdout(if capture_stdout { Stdio::piped() } else { Stdio::null() })
+        .stdin(if stdin.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
+        .stdout(if capture_stdout {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stderr(Stdio::piped());
-    let Ok(mut child) = cmd.spawn() else { return failed };
-    if let Some(data) = stdin {
-        if let Some(mut s) = child.stdin.take() {
-            let _ = s.write_all(data);
-        }
+    let Ok(mut child) = cmd.spawn() else {
+        return failed;
+    };
+    if let Some(data) = stdin
+        && let Some(mut s) = child.stdin.take()
+    {
+        let _ = s.write_all(data);
     }
     let out = drain(child.stdout.take());
     let err = drain(child.stderr.take());
@@ -105,7 +127,19 @@ pub fn run(bin: &Path, args: &[String], stdin: Option<&[u8]>, capture_stdout: bo
     let stdout = out.join().unwrap_or_default();
     let stderr = String::from_utf8_lossy(&err.join().unwrap_or_default()).into_owned();
     match status {
-        Some(s) => Output { ok: s.success(), timed_out: false, code: s.code(), stdout, stderr },
-        None => Output { ok: false, timed_out, code: None, stdout, stderr },
+        Some(s) => Output {
+            ok: s.success(),
+            timed_out: false,
+            code: s.code(),
+            stdout,
+            stderr,
+        },
+        None => Output {
+            ok: false,
+            timed_out,
+            code: None,
+            stdout,
+            stderr,
+        },
     }
 }

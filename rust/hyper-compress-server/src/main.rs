@@ -6,14 +6,23 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use hyper_compress::{compress, verify_password, Binaries, CompressInput, ErrorCode, Preset};
-use serde_json::{json, Map, Value};
+use hyper_compress::{Binaries, CompressInput, ErrorCode, Preset, compress, verify_password};
+use serde_json::{Map, Value, json};
 use tiny_http::{Header, Request, Response, Server};
 
 fn int_env(name: &str, dflt: u64, min: u64, max: u64) -> u64 {
-    match std::env::var(name).ok().map(|v| v.trim().to_string()).filter(|v| !v.is_empty()) {
+    match std::env::var(name)
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+    {
         None => dflt,
-        Some(v) => v.parse::<f64>().ok().filter(|n| n.is_finite()).map(|n| (n.floor().max(0.0) as u64).clamp(min, max)).unwrap_or(dflt),
+        Some(v) => v
+            .parse::<f64>()
+            .ok()
+            .filter(|n| n.is_finite())
+            .map(|n| (n.floor().max(0.0) as u64).clamp(min, max))
+            .unwrap_or(dflt),
     }
 }
 
@@ -87,7 +96,11 @@ fn drain(req: &mut Request) {
 
 fn send_json(mut req: Request, status: u16, body: Value) {
     drain(&mut req);
-    let _ = req.respond(Response::from_string(body.to_string()).with_status_code(status).with_header(header("content-type", "application/json")));
+    let _ = req.respond(
+        Response::from_string(body.to_string())
+            .with_status_code(status)
+            .with_header(header("content-type", "application/json")),
+    );
 }
 
 fn send_busy(mut req: Request) {
@@ -102,11 +115,16 @@ fn send_busy(mut req: Request) {
 }
 
 fn get_header(req: &Request, name: &str) -> Option<String> {
-    req.headers().iter().find(|h| h.field.as_str().as_str().eq_ignore_ascii_case(name)).map(|h| h.value.as_str().to_string())
+    req.headers()
+        .iter()
+        .find(|h| h.field.as_str().as_str().eq_ignore_ascii_case(name))
+        .map(|h| h.value.as_str().to_string())
 }
 
 fn password(req: &Request) -> Option<String> {
-    get_header(req, "x-password-encoded").map(|v| decode_component(&v)).or_else(|| get_header(req, "x-password"))
+    get_header(req, "x-password-encoded")
+        .map(|v| decode_component(&v))
+        .or_else(|| get_header(req, "x-password"))
 }
 
 fn authorized(req: &Request, cfg: &Config) -> bool {
@@ -123,7 +141,11 @@ fn authorized(req: &Request, cfg: &Config) -> bool {
 
 fn read_body(req: &mut Request, limit: u64) -> Option<Vec<u8>> {
     let mut body = Vec::new();
-    let n = req.as_reader().take(limit + 1).read_to_end(&mut body).ok()?;
+    let n = req
+        .as_reader()
+        .take(limit + 1)
+        .read_to_end(&mut body)
+        .ok()?;
     (n as u64 <= limit).then_some(body)
 }
 
@@ -146,7 +168,11 @@ fn decode(s: &str) -> String {
         match bytes[i] {
             b'+' => out.push(b' '),
             b'%' if i + 2 < bytes.len() => {
-                match std::str::from_utf8(&bytes[i + 1..i + 3]).ok().and_then(|h| u8::from_str_radix(h, 16).ok()).ok_or(()) {
+                match std::str::from_utf8(&bytes[i + 1..i + 3])
+                    .ok()
+                    .and_then(|h| u8::from_str_radix(h, 16).ok())
+                    .ok_or(())
+                {
                     Ok(b) => {
                         out.push(b);
                         i += 2;
@@ -184,11 +210,20 @@ fn handle_compress(mut req: Request, cfg: &Config, slots: &Slots) {
     let custom = preset_raw == "custom";
     let preset = Preset::parse(&preset_raw);
     if !custom && preset.is_none() {
-        return send_json(req, 400, json!({ "error": "bad_preset", "presets": ["low", "medium", "high", "lossless", "custom"] }));
+        return send_json(
+            req,
+            400,
+            json!({ "error": "bad_preset", "presets": ["low", "medium", "high", "lossless", "custom"] }),
+        );
     }
     let target = match param("targetSizeBytes").filter(|s| !s.is_empty()) {
         None => None,
-        Some(t) => match t.trim().parse::<f64>().ok().filter(|n| n.is_finite() && *n > 0.0) {
+        Some(t) => match t
+            .trim()
+            .parse::<f64>()
+            .ok()
+            .filter(|n| n.is_finite() && *n > 0.0)
+        {
             Some(n) => Some(n.floor() as u64),
             None => return send_json(req, 400, json!({ "error": "bad_target_size" })),
         },
@@ -222,7 +257,11 @@ fn handle_compress(mut req: Request, cfg: &Config, slots: &Slots) {
         return send_json(req, 500, json!({ "error": "internal" }));
     };
     let Some(body) = read_body(&mut req, cfg.max_upload) else {
-        return send_json(req, 413, json!({ "error": "too_large", "maxBytes": cfg.max_upload }));
+        return send_json(
+            req,
+            413,
+            json!({ "error": "too_large", "maxBytes": cfg.max_upload }),
+        );
     };
     if body.len() < 5 || &body[..4] != b"%PDF" {
         return send_json(req, 400, json!({ "error": "not_a_pdf" }));
@@ -247,16 +286,29 @@ fn handle_compress(mut req: Request, cfg: &Config, slots: &Slots) {
     };
     match compress(&input) {
         Ok(r) => {
-            let Ok(out) = fs::read(&r.output_path) else { return send_json(req, 500, json!({ "error": "internal" })) };
-            let pdfa = r.pdfa.as_ref().map(|l| format!("{}{}", l.part, l.conformance)).unwrap_or_default();
+            let Ok(out) = fs::read(&r.output_path) else {
+                return send_json(req, 500, json!({ "error": "internal" }));
+            };
+            let pdfa = r
+                .pdfa
+                .as_ref()
+                .map(|l| format!("{}{}", l.part, l.conformance))
+                .unwrap_or_default();
             let met = r.met_target.map(|m| m.to_string()).unwrap_or_default();
-            let warnings = if r.warnings.is_empty() { String::new() } else { encode_component(&Value::from(r.warnings.clone()).to_string()) };
+            let warnings = if r.warnings.is_empty() {
+                String::new()
+            } else {
+                encode_component(&Value::from(r.warnings.clone()).to_string())
+            };
             let resp = Response::from_data(out)
                 .with_header(header("content-type", "application/pdf"))
                 .with_header(header("x-original-size", &r.original_size.to_string()))
                 .with_header(header("x-compressed-size", &r.compressed_size.to_string()))
                 .with_header(header("x-signed", &r.signed.to_string()))
-                .with_header(header("x-signatures-removed", &r.signatures_removed.to_string()))
+                .with_header(header(
+                    "x-signatures-removed",
+                    &r.signatures_removed.to_string(),
+                ))
                 .with_header(header("x-pdfa", &pdfa))
                 .with_header(header("x-pdfa-preserved", &r.pdfa_preserved.to_string()))
                 .with_header(header("x-met-target", &met))
@@ -283,7 +335,11 @@ fn handle_verify(mut req: Request, cfg: &Config, slots: &Slots) {
         return send_json(req, 500, json!({ "error": "internal" }));
     };
     let Some(body) = read_body(&mut req, cfg.max_upload) else {
-        return send_json(req, 413, json!({ "error": "too_large", "maxBytes": cfg.max_upload }));
+        return send_json(
+            req,
+            413,
+            json!({ "error": "too_large", "maxBytes": cfg.max_upload }),
+        );
     };
     let src = dir.path().join("in.pdf");
     if fs::write(&src, &body).is_err() {
@@ -298,10 +354,17 @@ fn handle_verify(mut req: Request, cfg: &Config, slots: &Slots) {
 fn static_file(req: Request, cfg: &Config, url_path: &str) -> Option<Request> {
     let ok_path = url_path.len() > 1
         && (url_path.starts_with("/dist/") || url_path.starts_with("/web/"))
-        && [".js", ".css", ".woff2", ".svg", ".png"].iter().any(|e| url_path.ends_with(e))
-        && url_path[..url_path.rfind('.').unwrap_or(0)].chars().skip(1).all(|c| c.is_ascii_alphanumeric() || "/_-".contains(c))
+        && [".js", ".css", ".woff2", ".svg", ".png"]
+            .iter()
+            .any(|e| url_path.ends_with(e))
+        && url_path[..url_path.rfind('.').unwrap_or(0)]
+            .chars()
+            .skip(1)
+            .all(|c| c.is_ascii_alphanumeric() || "/_-".contains(c))
         && !url_path.contains("..");
-    let Some(root) = cfg.root.as_ref().filter(|_| ok_path) else { return Some(req) };
+    let Some(root) = cfg.root.as_ref().filter(|_| ok_path) else {
+        return Some(req);
+    };
     let target = root.join(&url_path[1..]);
     match fs::read(&target) {
         Ok(buf) => {
@@ -328,17 +391,34 @@ fn find_root() -> Option<PathBuf> {
         return Some(PathBuf::from(r));
     }
     let exe = std::env::current_exe().ok()?;
-    exe.ancestors().take(8).find(|d| d.join("web").join("index.html").is_file()).map(Path::to_path_buf)
+    exe.ancestors()
+        .take(8)
+        .find(|d| d.join("web").join("index.html").is_file())
+        .map(Path::to_path_buf)
 }
 
 fn index_page(root: &Option<PathBuf>) -> Vec<u8> {
     let fallback = b"<h1>Hyper Compress</h1><p>POST a PDF to /api/compress</p>".to_vec();
-    let Some(page) = root.as_ref().and_then(|r| fs::read_to_string(r.join("web").join("index.html")).ok()) else { return fallback };
+    let Some(page) = root
+        .as_ref()
+        .and_then(|r| fs::read_to_string(r.join("web").join("index.html")).ok())
+    else {
+        return fallback;
+    };
     let page = page
         .replace("href=\"./app.css\"", "href=\"/web/app.css\"")
-        .replace("<div id=\"status\">Loading engine...</div>", "<div id=\"status\"></div>")
-        .replace("import { initApp } from './app.js';", "import { initApp } from '/web/app.js';")
-        .replace("import { createWasmEngine } from './engine-wasm.js';", "import { createHttpEngine } from '/web/engine-http.js';")
+        .replace(
+            "<div id=\"status\">Loading engine...</div>",
+            "<div id=\"status\"></div>",
+        )
+        .replace(
+            "import { initApp } from './app.js';",
+            "import { initApp } from '/web/app.js';",
+        )
+        .replace(
+            "import { createWasmEngine } from './engine-wasm.js';",
+            "import { createHttpEngine } from '/web/engine-http.js';",
+        )
         .replace("initApp(createWasmEngine);", "initApp(createHttpEngine);")
         .replace("\"./images/", "\"/web/images/");
     if !page.contains("engine-http.js") || page.contains("createWasmEngine") {
@@ -356,12 +436,20 @@ fn main() {
         max_upload: int_env("HYPER_MAX_UPLOAD_MB", 500, 1, 1024 * 1024) * 1024 * 1024,
         concurrency: int_env("HYPER_CONCURRENCY", 2, 1, 1024) as usize,
         queue_limit: int_env("HYPER_QUEUE", 8, 0, 100_000) as usize,
-        timeout: Duration::from_millis(int_env("HYPER_TIMEOUT_MS", 600_000, 1000, 24 * 60 * 60_000)),
+        timeout: Duration::from_millis(int_env(
+            "HYPER_TIMEOUT_MS",
+            600_000,
+            1000,
+            24 * 60 * 60_000,
+        )),
         token: std::env::var("HYPER_API_TOKEN").unwrap_or_default(),
         index: index_page(&root),
         root,
     });
-    let slots = Arc::new(Slots { gate: Mutex::new(Gate::default()), cv: Condvar::new() });
+    let slots = Arc::new(Slots {
+        gate: Mutex::new(Gate::default()),
+        cv: Condvar::new(),
+    });
     let server = match Server::http(format!("{host}:{port}")) {
         Ok(s) => s,
         Err(e) => {
@@ -382,11 +470,18 @@ fn main() {
             let method = req.method().as_str().to_string();
             match (method.as_str(), url_path.as_str()) {
                 ("GET", "/") => {
-                    let _ = req.respond(Response::from_data(cfg.index.clone()).with_header(header("content-type", "text/html; charset=utf-8")));
+                    let _ = req.respond(
+                        Response::from_data(cfg.index.clone())
+                            .with_header(header("content-type", "text/html; charset=utf-8")),
+                    );
                 }
                 ("GET", "/healthz") => {
                     let (active, queued) = slots.counts();
-                    send_json(req, 200, json!({ "ok": true, "active": active, "queued": queued }));
+                    send_json(
+                        req,
+                        200,
+                        json!({ "ok": true, "active": active, "queued": queued }),
+                    );
                 }
                 ("POST", "/api/verify-password") => {
                     if authorized(&req, &cfg) {

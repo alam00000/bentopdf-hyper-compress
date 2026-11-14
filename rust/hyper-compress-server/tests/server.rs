@@ -21,16 +21,29 @@ impl Drop for Server {
 }
 
 fn start(env: &[(&str, &str)]) -> Server {
-    let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let port = TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_hyper-server"));
-    cmd.env("HYPER_HOST", "127.0.0.1").env("HYPER_PORT", port.to_string()).stdout(Stdio::null()).stderr(Stdio::null());
+    cmd.env("HYPER_HOST", "127.0.0.1")
+        .env("HYPER_PORT", port.to_string())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
     for (k, v) in env {
         cmd.env(k, v);
     }
-    let server = Server { child: cmd.spawn().unwrap(), port };
+    let server = Server {
+        child: cmd.spawn().unwrap(),
+        port,
+    };
     let started = Instant::now();
     while TcpStream::connect(("127.0.0.1", port)).is_err() {
-        assert!(started.elapsed() < Duration::from_secs(10), "server did not start");
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "server did not start"
+        );
         thread::sleep(Duration::from_millis(20));
     }
     server
@@ -47,13 +60,19 @@ impl Resp {
         serde_json::from_slice(&self.body).unwrap_or(serde_json::Value::Null)
     }
     fn header(&self, k: &str) -> &str {
-        self.headers.get(k).map(String::as_str).unwrap_or("<missing>")
+        self.headers
+            .get(k)
+            .map(String::as_str)
+            .unwrap_or("<missing>")
     }
 }
 
 fn request(s: &Server, method: &str, path: &str, headers: &[(&str, &str)], body: &[u8]) -> Resp {
     let mut stream = TcpStream::connect(("127.0.0.1", s.port)).unwrap();
-    let mut head = format!("{method} {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Length: {}\r\n", body.len());
+    let mut head = format!(
+        "{method} {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Length: {}\r\n",
+        body.len()
+    );
     for (k, v) in headers {
         head.push_str(&format!("{k}: {v}\r\n"));
     }
@@ -62,22 +81,48 @@ fn request(s: &Server, method: &str, path: &str, headers: &[(&str, &str)], body:
     let _ = stream.write_all(body);
     let mut raw = Vec::new();
     if let Err(e) = stream.read_to_end(&mut raw) {
-        assert!(e.kind() == std::io::ErrorKind::ConnectionReset && complete(&raw), "{e} after {} bytes", raw.len());
+        assert!(
+            e.kind() == std::io::ErrorKind::ConnectionReset && complete(&raw),
+            "{e} after {} bytes",
+            raw.len()
+        );
     }
-    let split = raw.windows(4).position(|w| w == b"\r\n\r\n").expect("no header end");
+    let split = raw
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .expect("no header end");
     let head = String::from_utf8_lossy(&raw[..split]).into_owned();
     let mut lines = head.lines();
-    let status = lines.next().unwrap().split(' ').nth(1).unwrap().parse().unwrap();
-    let headers = lines.filter_map(|l| l.split_once(':')).map(|(k, v)| (k.trim().to_ascii_lowercase(), v.trim().to_string())).collect();
+    let status = lines
+        .next()
+        .unwrap()
+        .split(' ')
+        .nth(1)
+        .unwrap()
+        .parse()
+        .unwrap();
+    let headers = lines
+        .filter_map(|l| l.split_once(':'))
+        .map(|(k, v)| (k.trim().to_ascii_lowercase(), v.trim().to_string()))
+        .collect();
     let mut body = raw[split + 4..].to_vec();
-    if head.to_ascii_lowercase().contains("transfer-encoding: chunked") {
+    if head
+        .to_ascii_lowercase()
+        .contains("transfer-encoding: chunked")
+    {
         body = dechunk(&body);
     }
-    Resp { status, headers, body }
+    Resp {
+        status,
+        headers,
+        body,
+    }
 }
 
 fn complete(raw: &[u8]) -> bool {
-    let Some(split) = raw.windows(4).position(|w| w == b"\r\n\r\n") else { return false };
+    let Some(split) = raw.windows(4).position(|w| w == b"\r\n\r\n") else {
+        return false;
+    };
     let head = String::from_utf8_lossy(&raw[..split]).to_ascii_lowercase();
     head.lines()
         .find_map(|l| l.strip_prefix("content-length:"))
@@ -88,7 +133,8 @@ fn complete(raw: &[u8]) -> bool {
 fn dechunk(mut b: &[u8]) -> Vec<u8> {
     let mut out = Vec::new();
     while let Some(end) = b.windows(2).position(|w| w == b"\r\n") {
-        let size = usize::from_str_radix(String::from_utf8_lossy(&b[..end]).trim(), 16).unwrap_or(0);
+        let size =
+            usize::from_str_radix(String::from_utf8_lossy(&b[..end]).trim(), 16).unwrap_or(0);
         if size == 0 {
             break;
         }
@@ -120,20 +166,32 @@ fn healthz_index_static_and_not_found() {
     let s = start(&[]);
     let h = request(&s, "GET", "/healthz", &[], b"");
     assert_eq!(h.status, 200);
-    assert_eq!(h.json(), serde_json::json!({ "ok": true, "active": 0, "queued": 0 }));
+    assert_eq!(
+        h.json(),
+        serde_json::json!({ "ok": true, "active": 0, "queued": 0 })
+    );
     let index = request(&s, "GET", "/", &[], b"");
     assert_eq!(index.status, 200);
     let page = String::from_utf8_lossy(&index.body);
     assert!(page.contains("createHttpEngine") && !page.contains("createWasmEngine"));
     assert!(page.contains("\"/web/images/logo.svg\""));
     let icon = request(&s, "GET", "/web/images/logo.svg", &[], b"");
-    assert_eq!((icon.status, icon.header("content-type")), (200, "image/svg+xml"));
+    assert_eq!(
+        (icon.status, icon.header("content-type")),
+        (200, "image/svg+xml")
+    );
     let js = request(&s, "GET", "/web/app.js", &[], b"");
     assert_eq!(js.status, 200);
     assert!(js.header("content-type").starts_with("text/javascript"));
-    assert_eq!(request(&s, "GET", "/web/../package.json", &[], b"").status, 404);
+    assert_eq!(
+        request(&s, "GET", "/web/../package.json", &[], b"").status,
+        404
+    );
     assert_eq!(request(&s, "GET", "/web/missing.js", &[], b"").status, 404);
-    assert_eq!(request(&s, "GET", "/api/compress", &[], b"").json()["error"], "not_found");
+    assert_eq!(
+        request(&s, "GET", "/api/compress", &[], b"").json()["error"],
+        "not_found"
+    );
     assert_eq!(request(&s, "DELETE", "/healthz", &[], b"").status, 404);
 }
 
@@ -151,13 +209,26 @@ fn request_validation_errors() {
     ];
     for (path, code, status) in cases {
         let r = post(&s, path, &pdf);
-        assert_eq!((r.status, r.json()["error"].as_str().unwrap_or("")), (status, code), "{path}");
+        assert_eq!(
+            (r.status, r.json()["error"].as_str().unwrap_or("")),
+            (status, code),
+            "{path}"
+        );
     }
-    let long = format!("/api/compress?options=%7B%22a%22%3A%22{}%22%7D", "x".repeat(4100));
+    let long = format!(
+        "/api/compress?options=%7B%22a%22%3A%22{}%22%7D",
+        "x".repeat(4100)
+    );
     assert_eq!(post(&s, &long, &pdf).json()["error"], "bad_options");
     let bad_preset = post(&s, "/api/compress?preset=huge", &pdf).json();
-    assert_eq!(bad_preset["presets"], serde_json::json!(["low", "medium", "high", "lossless", "custom"]));
-    assert_eq!(post(&s, "/api/compress", b"hello").json()["error"], "not_a_pdf");
+    assert_eq!(
+        bad_preset["presets"],
+        serde_json::json!(["low", "medium", "high", "lossless", "custom"])
+    );
+    assert_eq!(
+        post(&s, "/api/compress", b"hello").json()["error"],
+        "not_a_pdf"
+    );
 }
 
 #[test]
@@ -185,12 +256,19 @@ fn custom_options_and_shorthands() {
     need_engine!();
     let s = start(&[]);
     let input = pdf::image_pdf();
-    let custom = post(&s, "/api/compress?preset=custom&options=%7B%22imageQuality%22%3A35%2C%22grayscale%22%3Atrue%7D", &input);
+    let custom = post(
+        &s,
+        "/api/compress?preset=custom&options=%7B%22imageQuality%22%3A35%2C%22grayscale%22%3Atrue%7D",
+        &input,
+    );
     assert_eq!(custom.status, 200);
     let text = pdf::rich_text_pdf();
     let brotli = post(&s, "/api/compress?preset=lossless&brotli=true", &text);
     assert_eq!(brotli.status, 200);
-    assert!(contains(&brotli.body, b"/BrotliDecode"), "no Brotli streams");
+    assert!(
+        contains(&brotli.body, b"/BrotliDecode"),
+        "no Brotli streams"
+    );
     let plain = post(&s, "/api/compress?preset=lossless", &text);
     assert!(!contains(&plain.body, b"/BrotliDecode"));
 }
@@ -208,8 +286,14 @@ fn signed_pdfa_and_target_headers() {
     assert_eq!(a.header("x-pdfa-preserved"), "true");
     let t = post(&s, "/api/compress?targetSizeBytes=100", &pdf::image_pdf());
     assert_eq!(t.header("x-met-target"), "false");
-    let warnings = t.header("x-warnings").replace("%20", " ").replace("%3A", ":");
-    assert!(warnings.contains("target of 100 bytes not reached"), "{warnings}");
+    let warnings = t
+        .header("x-warnings")
+        .replace("%20", " ")
+        .replace("%3A", ":");
+    assert!(
+        warnings.contains("target of 100 bytes not reached"),
+        "{warnings}"
+    );
 }
 
 #[test]
@@ -217,17 +301,59 @@ fn passwords_and_verify() {
     need_engine!();
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("p.pdf"), pdf::image_pdf()).unwrap();
-    pdf::encrypt(&dir.path().join("p.pdf"), &dir.path().join("l.pdf"), "hunter2");
+    pdf::encrypt(
+        &dir.path().join("p.pdf"),
+        &dir.path().join("l.pdf"),
+        "hunter2",
+    );
     let locked = std::fs::read(dir.path().join("l.pdf")).unwrap();
     let s = start(&[]);
-    let wrong = request(&s, "POST", "/api/compress", &[("X-Password", "nope")], &locked);
-    assert_eq!((wrong.status, wrong.json()["error"].as_str().unwrap()), (400, "decrypt_failed"));
-    let right = request(&s, "POST", "/api/compress", &[("X-Password", "hunter2")], &locked);
+    let wrong = request(
+        &s,
+        "POST",
+        "/api/compress",
+        &[("X-Password", "nope")],
+        &locked,
+    );
+    assert_eq!(
+        (wrong.status, wrong.json()["error"].as_str().unwrap()),
+        (400, "decrypt_failed")
+    );
+    let right = request(
+        &s,
+        "POST",
+        "/api/compress",
+        &[("X-Password", "hunter2")],
+        &locked,
+    );
     assert_eq!(right.status, 200);
-    assert_eq!(request(&s, "POST", "/api/verify-password", &[("X-Password", "hunter2")], &locked).json()["valid"], true);
-    assert_eq!(request(&s, "POST", "/api/verify-password", &[("X-Password", "nope")], &locked).json()["valid"], false);
+    assert_eq!(
+        request(
+            &s,
+            "POST",
+            "/api/verify-password",
+            &[("X-Password", "hunter2")],
+            &locked
+        )
+        .json()["valid"],
+        true
+    );
+    assert_eq!(
+        request(
+            &s,
+            "POST",
+            "/api/verify-password",
+            &[("X-Password", "nope")],
+            &locked
+        )
+        .json()["valid"],
+        false
+    );
     let missing = post(&s, "/api/compress", &locked);
-    assert_eq!((missing.status, missing.json()["error"].as_str().unwrap()), (400, "decrypt_failed"));
+    assert_eq!(
+        (missing.status, missing.json()["error"].as_str().unwrap()),
+        (400, "decrypt_failed")
+    );
 }
 
 #[test]
@@ -235,26 +361,69 @@ fn non_ascii_passwords_work_through_the_encoded_header() {
     need_engine!();
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("p.pdf"), pdf::image_pdf()).unwrap();
-    pdf::encrypt(&dir.path().join("p.pdf"), &dir.path().join("l.pdf"), "p\u{e4}ssw\u{f6}rt+1");
+    pdf::encrypt(
+        &dir.path().join("p.pdf"),
+        &dir.path().join("l.pdf"),
+        "p\u{e4}ssw\u{f6}rt+1",
+    );
     let locked = std::fs::read(dir.path().join("l.pdf")).unwrap();
     let s = start(&[]);
     let encoded = [("X-Password-Encoded", "p%C3%A4ssw%C3%B6rt%2B1")];
-    assert_eq!(request(&s, "POST", "/api/verify-password", &encoded, &locked).json()["valid"], true);
+    assert_eq!(
+        request(&s, "POST", "/api/verify-password", &encoded, &locked).json()["valid"],
+        true
+    );
     let r = request(&s, "POST", "/api/compress", &encoded, &locked);
     assert_eq!(r.status, 200, "{}", String::from_utf8_lossy(&r.body));
     let plus = [("X-Password-Encoded", "p%C3%A4ssw%C3%B6rt+1")];
-    assert_eq!(request(&s, "POST", "/api/verify-password", &plus, &locked).json()["valid"], true);
+    assert_eq!(
+        request(&s, "POST", "/api/verify-password", &plus, &locked).json()["valid"],
+        true
+    );
 }
 
 #[test]
 fn api_token_guards_only_the_api() {
     let s = start(&[("HYPER_API_TOKEN", "sekret")]);
     let pdf = pdf::text_pdf();
-    assert_eq!(post(&s, "/api/compress?preset=huge", &pdf).json()["error"], "unauthorized");
+    assert_eq!(
+        post(&s, "/api/compress?preset=huge", &pdf).json()["error"],
+        "unauthorized"
+    );
     assert_eq!(post(&s, "/api/verify-password", &pdf).status, 401);
-    assert_eq!(request(&s, "POST", "/api/compress?preset=huge", &[("Authorization", "Bearer wrong")], &pdf).status, 401);
-    assert_eq!(request(&s, "POST", "/api/compress?preset=huge", &[("Authorization", "Bearer sekret")], &pdf).status, 400);
-    assert_eq!(request(&s, "POST", "/api/compress?preset=huge", &[("x-api-token", "sekret")], &pdf).status, 400);
+    assert_eq!(
+        request(
+            &s,
+            "POST",
+            "/api/compress?preset=huge",
+            &[("Authorization", "Bearer wrong")],
+            &pdf
+        )
+        .status,
+        401
+    );
+    assert_eq!(
+        request(
+            &s,
+            "POST",
+            "/api/compress?preset=huge",
+            &[("Authorization", "Bearer sekret")],
+            &pdf
+        )
+        .status,
+        400
+    );
+    assert_eq!(
+        request(
+            &s,
+            "POST",
+            "/api/compress?preset=huge",
+            &[("x-api-token", "sekret")],
+            &pdf
+        )
+        .status,
+        400
+    );
     assert_eq!(request(&s, "GET", "/healthz", &[], b"").status, 200);
     assert_eq!(request(&s, "GET", "/", &[], b"").status, 200);
 }
@@ -265,7 +434,10 @@ fn upload_limit_returns_413() {
     let mut big = b"%PDF-1.7\n".to_vec();
     big.resize(1024 * 1024 + 10, b' ');
     let r = post(&s, "/api/compress", &big);
-    assert_eq!((r.status, r.json()["maxBytes"].as_u64()), (413, Some(1024 * 1024)));
+    assert_eq!(
+        (r.status, r.json()["maxBytes"].as_u64()),
+        (413, Some(1024 * 1024))
+    );
 }
 
 #[test]
@@ -281,11 +453,17 @@ fn full_queue_returns_429() {
         if h["active"] == 1 {
             break;
         }
-        assert!(started.elapsed() < Duration::from_secs(5), "slot never taken: {h}");
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "slot never taken: {h}"
+        );
         thread::sleep(Duration::from_millis(20));
     }
     let r = post(&s, "/api/compress", &pdf::text_pdf());
-    assert_eq!((r.status, r.json()["error"].as_str().unwrap()), (429, "busy"));
+    assert_eq!(
+        (r.status, r.json()["error"].as_str().unwrap()),
+        (429, "busy")
+    );
     assert_eq!(r.header("retry-after"), "1");
     drop(holder);
 }
@@ -295,7 +473,13 @@ fn burst_respects_concurrency_and_leaves_no_temp_files() {
     need_engine!();
     let tmp = tempfile::tempdir().unwrap();
     let t = tmp.path().to_str().unwrap();
-    let s = std::sync::Arc::new(start(&[("HYPER_CONCURRENCY", "2"), ("HYPER_QUEUE", "40"), ("TMPDIR", t), ("TMP", t), ("TEMP", t)]));
+    let s = std::sync::Arc::new(start(&[
+        ("HYPER_CONCURRENCY", "2"),
+        ("HYPER_QUEUE", "40"),
+        ("TMPDIR", t),
+        ("TMP", t),
+        ("TEMP", t),
+    ]));
     let input = std::sync::Arc::new(pdf::image_pdf());
     let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let monitor = {
@@ -327,8 +511,15 @@ fn burst_respects_concurrency_and_leaves_no_temp_files() {
     done.store(true, std::sync::atomic::Ordering::SeqCst);
     let peak = monitor.join().unwrap();
     assert!((1..=2).contains(&peak), "peak active jobs {peak}");
-    assert_eq!(request(&s, "GET", "/healthz", &[], b"").json(), serde_json::json!({ "ok": true, "active": 0, "queued": 0 }));
-    let left: Vec<_> = std::fs::read_dir(tmp.path()).unwrap().flatten().map(|e| e.file_name()).collect();
+    assert_eq!(
+        request(&s, "GET", "/healthz", &[], b"").json(),
+        serde_json::json!({ "ok": true, "active": 0, "queued": 0 })
+    );
+    let left: Vec<_> = std::fs::read_dir(tmp.path())
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name())
+        .collect();
     assert!(left.is_empty(), "temp files left behind: {left:?}");
 }
 
@@ -337,7 +528,11 @@ fn early_errors_reach_clients_that_upload_a_large_body() {
     let s = start(&[]);
     let mut big = b"%PDF-1.7\n".to_vec();
     big.resize(800 * 1024, b' ');
-    for path in ["/api/compress?preset=huge", "/api/compress?options=notjson", "/nope"] {
+    for path in [
+        "/api/compress?preset=huge",
+        "/api/compress?options=notjson",
+        "/nope",
+    ] {
         let r = post(&s, path, &big);
         assert!(r.status >= 400 && r.status < 500, "{path}: {}", r.status);
         assert!(r.json()["error"].is_string(), "{path}");

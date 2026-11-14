@@ -74,7 +74,10 @@ fn js_round(v: f64) -> f64 {
 }
 
 fn clamp(v: Option<&Value>, lo: i64, hi: i64, dflt: i64) -> i64 {
-    let n = v.and_then(Value::as_f64).filter(|n| n.is_finite()).unwrap_or(dflt as f64);
+    let n = v
+        .and_then(Value::as_f64)
+        .filter(|n| n.is_finite())
+        .unwrap_or(dflt as f64);
     (js_round(n) as i64).clamp(lo, hi)
 }
 
@@ -101,7 +104,8 @@ impl Options {
     pub fn normalize(raw: &Map<String, Value>) -> Options {
         let g = |k: &str| raw.get(k);
         let annotations = pick(ANNOTATION_MODES, g("annotations"), "keep");
-        let annotations = if annotations == "keep" && g("removeAnnots") == Some(&Value::Bool(true)) {
+        let annotations = if annotations == "keep" && g("removeAnnots") == Some(&Value::Bool(true))
+        {
             "flatten".to_string()
         } else {
             annotations
@@ -187,8 +191,16 @@ impl Options {
         let mut t: Vec<String> = Vec::new();
         let mut mask: u32 = 0;
         if !o.lossless {
-            let color = if o.max_dpi_color != 0 { o.max_dpi_color } else { o.max_dpi };
-            let gray = if o.max_dpi_gray != 0 { o.max_dpi_gray } else { o.max_dpi };
+            let color = if o.max_dpi_color != 0 {
+                o.max_dpi_color
+            } else {
+                o.max_dpi
+            };
+            let gray = if o.max_dpi_gray != 0 {
+                o.max_dpi_gray
+            } else {
+                o.max_dpi
+            };
             if o.max_dpi > 0 {
                 t.push(format!("1={}", o.max_dpi));
             }
@@ -201,7 +213,10 @@ impl Options {
             if o.max_dpi_mono > 0 {
                 t.push(format!("59={}", o.max_dpi_mono));
             }
-            let limits: Vec<i64> = [color, gray, o.max_dpi_mono].into_iter().filter(|d| *d > 0).collect();
+            let limits: Vec<i64> = [color, gray, o.max_dpi_mono]
+                .into_iter()
+                .filter(|d| *d > 0)
+                .collect();
             if let Some(lowest) = limits.iter().min() {
                 if o.threshold_dpi > 0 {
                     t.push(format!("50={}", o.threshold_dpi.max(*lowest)));

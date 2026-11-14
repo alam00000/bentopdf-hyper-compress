@@ -15,9 +15,10 @@ jobs:
       - run: make check
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy
+          components: clippy, rustfmt
       - name: rust tests and lint
         run: |
+          cargo fmt --all --check --manifest-path rust/Cargo.toml
           cargo test --workspace --locked --manifest-path rust/Cargo.toml
           cargo clippy --workspace --all-targets --locked --manifest-path rust/Cargo.toml -- -D warnings
       - name: shell script syntax

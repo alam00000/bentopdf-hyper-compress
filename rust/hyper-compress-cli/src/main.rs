@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use hyper_compress::{compress, Binaries, CompressInput, Preset, ReportRequest};
+use hyper_compress::{Binaries, CompressInput, Preset, ReportRequest, compress};
 use serde_json::{Map, Value};
 
 const USAGE: &str = "usage: hyper <input.pdf> [output.pdf] [--preset low|medium|high|lossless]
@@ -69,10 +69,13 @@ enum Usage {
 
 fn parse_size(raw: &str) -> Option<u64> {
     let s = raw.trim().to_ascii_lowercase();
-    let split = s.find(|c: char| !(c.is_ascii_digit() || c == '.')).unwrap_or(s.len());
+    let split = s
+        .find(|c: char| !(c.is_ascii_digit() || c == '.'))
+        .unwrap_or(s.len());
     let (num, unit) = s.split_at(split);
     let unit = unit.trim();
-    if num.is_empty() || num.starts_with('.') || num.ends_with('.') || num.matches('.').count() > 1 {
+    if num.is_empty() || num.starts_with('.') || num.ends_with('.') || num.matches('.').count() > 1
+    {
         return None;
     }
     let mult = match unit {
@@ -86,11 +89,20 @@ fn parse_size(raw: &str) -> Option<u64> {
 
 fn js_number(raw: &str) -> Option<f64> {
     let t = raw.trim();
-    let radix = |p: &str, base: u32| t.strip_prefix(p).or_else(|| t.strip_prefix(&p.to_uppercase())).and_then(|d| u64::from_str_radix(d, base).ok()).map(|n| n as f64);
+    let radix = |p: &str, base: u32| {
+        t.strip_prefix(p)
+            .or_else(|| t.strip_prefix(&p.to_uppercase()))
+            .and_then(|d| u64::from_str_radix(d, base).ok())
+            .map(|n| n as f64)
+    };
     if t.is_empty() {
         return None;
     }
-    radix("0x", 16).or_else(|| radix("0o", 8)).or_else(|| radix("0b", 2)).or_else(|| t.parse::<f64>().ok()).filter(|n| n.is_finite())
+    radix("0x", 16)
+        .or_else(|| radix("0o", 8))
+        .or_else(|| radix("0b", 2))
+        .or_else(|| t.parse::<f64>().ok())
+        .filter(|n| n.is_finite())
 }
 
 fn parse(argv: &[String]) -> Result<Parsed, Usage> {
@@ -102,11 +114,9 @@ fn parse(argv: &[String]) -> Result<Parsed, Usage> {
             "--help" | "-h" => p.help = true,
             "--version" | "-v" | "-V" => p.version = true,
             "--preset" => {
-                p.preset = Some(
-                    it.next()
-                        .and_then(|v| Preset::parse(v))
-                        .ok_or_else(|| Usage::Error("--preset expects one of low, medium, high, lossless".into()))?,
-                )
+                p.preset = Some(it.next().and_then(|v| Preset::parse(v)).ok_or_else(|| {
+                    Usage::Error("--preset expects one of low, medium, high, lossless".into())
+                })?)
             }
             "--password" => p.password = it.next().cloned(),
             "--brotli" => {
@@ -120,29 +130,40 @@ fn parse(argv: &[String]) -> Result<Parsed, Usage> {
                 p.overrides.insert("mrc".into(), Value::String(v.into()));
             }
             "--target-size" => {
-                let n = it
-                    .next()
-                    .and_then(|v| parse_size(v))
-                    .ok_or_else(|| Usage::Error("--target-size expects a size like 2MB, 500KB or a byte count".into()))?;
+                let n = it.next().and_then(|v| parse_size(v)).ok_or_else(|| {
+                    Usage::Error(
+                        "--target-size expects a size like 2MB, 500KB or a byte count".into(),
+                    )
+                })?;
                 if n == 0 {
-                    return Err(Usage::Error("--target-size must be greater than zero".into()));
+                    return Err(Usage::Error(
+                        "--target-size must be greater than zero".into(),
+                    ));
                 }
                 p.target = Some(n);
             }
             "--report" => {
                 p.report = Some(
-                    it.next().filter(|v| !v.is_empty()).cloned().ok_or_else(|| Usage::Error("--report expects a file path".into()))?,
+                    it.next()
+                        .filter(|v| !v.is_empty())
+                        .cloned()
+                        .ok_or_else(|| Usage::Error("--report expects a file path".into()))?,
                 )
             }
             "--set" => {
                 let kv = it.next().map(String::as_str).unwrap_or("");
-                let eq = kv.find('=').filter(|i| *i > 0).ok_or_else(|| Usage::Error("--set expects key=value".into()))?;
+                let eq = kv
+                    .find('=')
+                    .filter(|i| *i > 0)
+                    .ok_or_else(|| Usage::Error("--set expects key=value".into()))?;
                 let (key, raw) = (&kv[..eq], &kv[eq + 1..]);
                 let value = match raw {
                     "true" => Value::Bool(true),
                     "false" => Value::Bool(false),
                     r => match js_number(r) {
-                        Some(n) => serde_json::Number::from_f64(n).map(Value::Number).unwrap_or(Value::String(r.into())),
+                        Some(n) => serde_json::Number::from_f64(n)
+                            .map(Value::Number)
+                            .unwrap_or(Value::String(r.into())),
                         None => Value::String(r.into()),
                     },
                 };
@@ -176,7 +197,9 @@ fn main() -> ExitCode {
         println!("{}", env!("CARGO_PKG_VERSION"));
         return ExitCode::SUCCESS;
     }
-    let Some(input) = p.input else { return usage("an input PDF is required") };
+    let Some(input) = p.input else {
+        return usage("an input PDF is required");
+    };
     let request = CompressInput {
         source_path: PathBuf::from(input),
         save_path: p.output.map(PathBuf::from),
@@ -184,7 +207,10 @@ fn main() -> ExitCode {
         preset: Some(p.preset.unwrap_or(Preset::Medium)),
         options: p.overrides,
         target_size_bytes: p.target,
-        report: p.report.map(|r| ReportRequest::File(PathBuf::from(r))).unwrap_or_default(),
+        report: p
+            .report
+            .map(|r| ReportRequest::File(PathBuf::from(r)))
+            .unwrap_or_default(),
         binaries: Binaries::beside_exe(),
         ..Default::default()
     };
@@ -194,17 +220,27 @@ fn main() -> ExitCode {
                 eprintln!("warning: {w}");
             }
             let pct = if r.original_size > 0 {
-                ((1.0 - r.compressed_size as f64 / r.original_size as f64) * 100.0 + 0.5).floor() as i64
+                ((1.0 - r.compressed_size as f64 / r.original_size as f64) * 100.0 + 0.5).floor()
+                    as i64
             } else {
                 0
             };
-            let signed = if r.signed { " [signed: original preserved]" } else { "" };
+            let signed = if r.signed {
+                " [signed: original preserved]"
+            } else {
+                ""
+            };
             let target = match r.met_target {
                 None => "",
                 Some(true) => " [target met]",
                 Some(false) => " [target NOT met - best effort]",
             };
-            println!("{}\n  {} -> {} bytes ({pct}% smaller){signed}{target}", r.output_path.display(), r.original_size, r.compressed_size);
+            println!(
+                "{}\n  {} -> {} bytes ({pct}% smaller){signed}{target}",
+                r.output_path.display(),
+                r.original_size,
+                r.compressed_size
+            );
             ExitCode::SUCCESS
         }
         Err(e) => {
@@ -259,13 +295,16 @@ mod tests {
 
     #[test]
     fn set_coerces_booleans_numbers_and_strings() {
-        let p = ok("a.pdf --set grayscale=true --set imageQuality=40 --set colorTarget=cmyk --set minVersion=1.7 --set flattenForms=false");
+        let p = ok(
+            "a.pdf --set grayscale=true --set imageQuality=40 --set colorTarget=cmyk --set minVersion=1.7 --set flattenForms=false",
+        );
         assert_eq!(p.overrides["grayscale"], Value::Bool(true));
         assert_eq!(p.overrides["imageQuality"].as_f64(), Some(40.0));
         assert_eq!(p.overrides["colorTarget"], Value::String("cmyk".into()));
         assert_eq!(p.overrides["minVersion"].as_f64(), Some(1.7));
         assert_eq!(p.overrides["flattenForms"], Value::Bool(false));
-        let hex = ok("a.pdf --set contentPrecision=0x5 --set imageQuality=1e1 --set colorTarget=0xZZ");
+        let hex =
+            ok("a.pdf --set contentPrecision=0x5 --set imageQuality=1e1 --set colorTarget=0xZZ");
         assert_eq!(hex.overrides["contentPrecision"].as_f64(), Some(5.0));
         assert_eq!(hex.overrides["imageQuality"].as_f64(), Some(10.0));
         assert_eq!(hex.overrides["colorTarget"], Value::String("0xZZ".into()));

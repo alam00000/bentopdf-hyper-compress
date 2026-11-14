@@ -20,7 +20,10 @@ fn find(hay: &[u8], needle: &[u8], from: usize) -> Option<usize> {
     if from >= hay.len() {
         return None;
     }
-    hay[from..].windows(needle.len()).position(|w| w == needle).map(|p| p + from)
+    hay[from..]
+        .windows(needle.len())
+        .position(|w| w == needle)
+        .map(|p| p + from)
 }
 
 fn value_after(xmp: &str, key: &str) -> Option<char> {
@@ -28,7 +31,9 @@ fn value_after(xmp: &str, key: &str) -> Option<char> {
     while let Some(i) = rest.find(key) {
         let after = rest[i + key.len()..].trim_start();
         let after = if let Some(a) = after.strip_prefix('=') {
-            a.trim_start().strip_prefix(['"', '\'']).map(str::trim_start)
+            a.trim_start()
+                .strip_prefix(['"', '\''])
+                .map(str::trim_start)
         } else {
             after.strip_prefix('>').map(str::trim_start)
         };
@@ -46,7 +51,10 @@ pub fn parse_xmp(xmp: &str) -> Option<PdfaLevel> {
         .filter(char::is_ascii_alphabetic)
         .map(|c| c.to_ascii_lowercase().to_string())
         .unwrap_or_default();
-    Some(PdfaLevel { part: part.to_digit(10)?, conformance })
+    Some(PdfaLevel {
+        part: part.to_digit(10)?,
+        conformance,
+    })
 }
 
 pub fn detect(bytes: &[u8]) -> Option<PdfaLevel> {
@@ -63,7 +71,9 @@ pub fn strip_claim(xmp: &str) -> String {
         let open = format!("<pdfaid:{key}>");
         let close = format!("</pdfaid:{key}>");
         while let Some(i) = out.find(&open) {
-            let Some(j) = out[i..].find(&close) else { break };
+            let Some(j) = out[i..].find(&close) else {
+                break;
+            };
             let start = out[..i].trim_end().len();
             out.replace_range(start..i + j + close.len(), "");
         }
@@ -75,14 +85,14 @@ pub fn strip_claim(xmp: &str) -> String {
             let trimmed = after.trim_start();
             if let Some(eq) = trimmed.strip_prefix('=') {
                 let eq = eq.trim_start();
-                if let Some(q) = eq.chars().next().filter(|c| *c == '"' || *c == '\'') {
-                    if let Some(end) = eq[1..].find(q) {
-                        let consumed = after.len() - eq.len() + 1 + end + 1;
-                        let start = out[..i].trim_end().len();
-                        out.replace_range(start..i + attr.len() + consumed, "");
-                        from = start;
-                        continue;
-                    }
+                if let Some(q) = eq.chars().next().filter(|c| *c == '"' || *c == '\'')
+                    && let Some(end) = eq[1..].find(q)
+                {
+                    let consumed = after.len() - eq.len() + 1 + end + 1;
+                    let start = out[..i].trim_end().len();
+                    out.replace_range(start..i + attr.len() + consumed, "");
+                    from = start;
+                    continue;
                 }
             }
             from = i + attr.len();
@@ -96,14 +106,14 @@ pub fn strip_claim(xmp: &str) -> String {
         let trimmed = after.trim_start();
         if let Some(eq) = trimmed.strip_prefix('=') {
             let eq = eq.trim_start();
-            if let Some(q) = eq.chars().next().filter(|c| *c == '"' || *c == '\'') {
-                if let Some(end) = eq[1..].find(q) {
-                    let consumed = after.len() - eq.len() + 1 + end + 1;
-                    let start = out[..i].trim_end().len();
-                    out.replace_range(start..i + ns.len() + consumed, "");
-                    from = start;
-                    continue;
-                }
+            if let Some(q) = eq.chars().next().filter(|c| *c == '"' || *c == '\'')
+                && let Some(end) = eq[1..].find(q)
+            {
+                let consumed = after.len() - eq.len() + 1 + end + 1;
+                let start = out[..i].trim_end().len();
+                out.replace_range(start..i + ns.len() + consumed, "");
+                from = start;
+                continue;
             }
         }
         from = i + ns.len();
@@ -152,7 +162,10 @@ pub fn safety_warnings(requested: &Options, safe: &Options) -> Vec<String> {
         w.push("linearize skipped to preserve PDF/A conformance".to_string());
     }
     if requested.min_version != safe.min_version {
-        w.push(format!("minVersion {} refused: this PDF/A level requires a 1.x header", requested.min_version));
+        w.push(format!(
+            "minVersion {} refused: this PDF/A level requires a 1.x header",
+            requested.min_version
+        ));
     }
     w
 }
@@ -162,7 +175,8 @@ fn header_version(b: &[u8]) -> Option<String> {
         return None;
     }
     let v = &b[5..8];
-    (v[0].is_ascii_digit() && v[1] == b'.' && v[2].is_ascii_digit()).then(|| String::from_utf8_lossy(v).into_owned())
+    (v[0].is_ascii_digit() && v[1] == b'.' && v[2].is_ascii_digit())
+        .then(|| String::from_utf8_lossy(v).into_owned())
 }
 
 pub fn raise_header(output: &mut [u8], min_version: &str) {
@@ -170,18 +184,18 @@ pub fn raise_header(output: &mut [u8], min_version: &str) {
     if !ok {
         return;
     }
-    if let Some(cur) = header_version(output) {
-        if cur.as_str() < min_version {
-            output[5..8].copy_from_slice(min_version.as_bytes());
-        }
+    if let Some(cur) = header_version(output)
+        && cur.as_str() < min_version
+    {
+        output[5..8].copy_from_slice(min_version.as_bytes());
     }
 }
 
 pub fn restore_header(source: &[u8], output: &mut [u8]) {
-    if let (Some(from), Some(to)) = (header_version(source), header_version(output)) {
-        if from != to {
-            output[..8].copy_from_slice(&source[..8]);
-        }
+    if let (Some(from), Some(to)) = (header_version(source), header_version(output))
+        && from != to
+    {
+        output[..8].copy_from_slice(&source[..8]);
     }
 }
 
@@ -192,7 +206,13 @@ mod tests {
     #[test]
     fn parses_and_strips() {
         let xmp = r#"<rdf:Description xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/" pdfaid:part="2" pdfaid:conformance="B"/><x><pdfaid:part>3</pdfaid:part></x>"#;
-        assert_eq!(parse_xmp(xmp), Some(PdfaLevel { part: 2, conformance: "b".into() }));
+        assert_eq!(
+            parse_xmp(xmp),
+            Some(PdfaLevel {
+                part: 2,
+                conformance: "b".into()
+            })
+        );
         let s = strip_claim(xmp);
         assert!(!s.contains("pdfaid"), "{s}");
         assert!(s.contains("rdf:Description"));

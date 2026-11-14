@@ -25,7 +25,13 @@ fn build(objects: &[Vec<u8>], trailer_extra: &str) -> Vec<u8> {
     for off in offsets {
         out.extend(format!("{off:010} 00000 n \n").as_bytes());
     }
-    out.extend(format!("trailer\n<< /Size {} /Root 1 0 R{trailer_extra} >>\nstartxref\n{xref}\n%%EOF\n", objects.len() + 1).as_bytes());
+    out.extend(
+        format!(
+            "trailer\n<< /Size {} /Root 1 0 R{trailer_extra} >>\nstartxref\n{xref}\n%%EOF\n",
+            objects.len() + 1
+        )
+        .as_bytes(),
+    );
     out
 }
 

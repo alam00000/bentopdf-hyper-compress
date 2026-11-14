@@ -27,11 +27,17 @@ pub struct HyperError {
 
 impl HyperError {
     pub fn new(code: ErrorCode, message: impl Into<String>) -> Self {
-        Self { code, message: message.into() }
+        Self {
+            code,
+            message: message.into(),
+        }
     }
 
     pub fn code(code: ErrorCode) -> Self {
-        Self { code, message: code.as_str().to_string() }
+        Self {
+            code,
+            message: code.as_str().to_string(),
+        }
     }
 }
 

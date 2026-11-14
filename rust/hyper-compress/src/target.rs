@@ -5,7 +5,11 @@ pub const DPI_LADDER: [i64; 3] = [72, 50, 36];
 pub const QUALITY_STEPS: u32 = 7;
 
 pub fn start_quality(base: &Options) -> i64 {
-    95.min(if base.image_quality > QUALITY_FLOOR { base.image_quality } else { 80 })
+    95.min(if base.image_quality > QUALITY_FLOOR {
+        base.image_quality
+    } else {
+        80
+    })
 }
 
 pub fn ladder(base: &Options) -> Vec<Options> {

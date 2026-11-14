@@ -4,14 +4,14 @@ use std::time::{Duration, Instant};
 
 use base64::Engine as _;
 use serde::Serialize;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 use crate::error::{ErrorCode, HyperError, Result};
 use crate::options::Options;
 use crate::pdfa::{self, PdfaLevel};
 use crate::presets::Preset;
 use crate::report::{self, Report};
-use crate::run::{self, CancelToken, Limits, DEFAULT_STAGE_TIMEOUT};
+use crate::run::{self, CancelToken, DEFAULT_STAGE_TIMEOUT, Limits};
 use crate::target;
 
 const EXE: &str = if cfg!(windows) { ".exe" } else { "" };
@@ -26,11 +26,22 @@ pub struct Binaries {
 impl Binaries {
     pub fn beside_exe() -> Binaries {
         let mut search_dirs = Vec::new();
-        if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf)) {
+        if let Some(dir) = std::env::current_exe()
+            .ok()
+            .and_then(|e| e.parent().map(Path::to_path_buf))
+        {
             search_dirs.push(dir.clone());
-            search_dirs.extend(dir.ancestors().take(8).map(|d| d.join("cli").join("prebuilt")));
+            search_dirs.extend(
+                dir.ancestors()
+                    .take(8)
+                    .map(|d| d.join("cli").join("prebuilt")),
+            );
         }
-        Binaries { worker: None, qpdf: None, search_dirs }
+        Binaries {
+            worker: None,
+            qpdf: None,
+            search_dirs,
+        }
     }
 
     fn find(&self, explicit: &Option<PathBuf>, env: &str, name: &str) -> Option<PathBuf> {
@@ -40,7 +51,10 @@ impl Binaries {
         if let Some(p) = std::env::var_os(env).filter(|v| !v.is_empty()) {
             return Some(PathBuf::from(p));
         }
-        self.search_dirs.iter().map(|d| d.join(format!("{name}{EXE}"))).find(|p| p.is_file())
+        self.search_dirs
+            .iter()
+            .map(|d| d.join(format!("{name}{EXE}")))
+            .find(|p| p.is_file())
     }
 
     fn require(&self, explicit: &Option<PathBuf>, env: &str, name: &str) -> Result<PathBuf> {
@@ -58,14 +72,20 @@ impl Binaries {
     fn worker(&self) -> Result<PathBuf> {
         let p = self.require(&self.worker, "HYPER_DRV", "hpdf-worker")?;
         if !p.is_file() {
-            return Err(HyperError::new(ErrorCode::EngineError, format!("hpdf-worker not found at {}", p.display())));
+            return Err(HyperError::new(
+                ErrorCode::EngineError,
+                format!("hpdf-worker not found at {}", p.display()),
+            ));
         }
         Ok(p)
     }
 
     fn check_qpdf(&self) -> Result<()> {
         match self.qpdf() {
-            Some(p) if !p.is_file() => Err(HyperError::new(ErrorCode::EngineError, format!("qpdf not found at {}", p.display()))),
+            Some(p) if !p.is_file() => Err(HyperError::new(
+                ErrorCode::EngineError,
+                format!("qpdf not found at {}", p.display()),
+            )),
             _ => Ok(()),
         }
     }
@@ -123,7 +143,10 @@ pub fn resolve_options(preset: Option<Preset>, overrides: &Map<String, Value>) -
 }
 
 fn arg(p: &Path) -> String {
-    std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf()).to_string_lossy().into_owned()
+    std::path::absolute(p)
+        .unwrap_or_else(|_| p.to_path_buf())
+        .to_string_lossy()
+        .into_owned()
 }
 
 fn size(p: &Path) -> u64 {
@@ -138,15 +161,23 @@ struct Driver {
     stderr: String,
 }
 
-fn run_driver(bins: &Binaries, input: &Path, output: &Path, tokens: &[String], limits: &Limits) -> Result<Driver> {
+fn run_driver(
+    bins: &Binaries,
+    input: &Path,
+    output: &Path,
+    tokens: &[String],
+    limits: &Limits,
+) -> Result<Driver> {
     let mut args = vec![arg(input), arg(output)];
     args.extend(tokens.iter().cloned());
     let o = run::run(&bins.worker()?, &args, None, false, limits);
     stage_check(&o, limits, "the engine pass")?;
-    let note = o
-        .stderr
-        .lines()
-        .find_map(|l| l.split("[hyper] ").nth(1).filter(|s| s.starts_with("rasterize skipped:")).map(str::to_string));
+    let note = o.stderr.lines().find_map(|l| {
+        l.split("[hyper] ")
+            .nth(1)
+            .filter(|s| s.starts_with("rasterize skipped:"))
+            .map(str::to_string)
+    });
     Ok(Driver {
         ok: o.ok,
         signed: o.stderr.contains("SIGNED_SKIP"),
@@ -161,7 +192,10 @@ fn stage_check(o: &run::Output, limits: &Limits, stage: &str) -> Result<()> {
     if o.timed_out {
         return Err(HyperError::new(
             ErrorCode::Timeout,
-            format!("{stage} ran longer than the {} ms stage limit", limits.stage.as_millis()),
+            format!(
+                "{stage} ran longer than the {} ms stage limit",
+                limits.stage.as_millis()
+            ),
         ));
     }
     Ok(())
@@ -179,14 +213,26 @@ fn run_qpdf(bins: &Binaries, args: Vec<String>, limits: &Limits) -> Result<bool>
 }
 
 fn qpdf_json(bins: &Binaries, args: Vec<String>, limits: &Limits) -> Result<Option<Value>> {
-    let Some(bin) = bins.qpdf() else { return Ok(None) };
+    let Some(bin) = bins.qpdf() else {
+        return Ok(None);
+    };
     let o = run::run(&bin, &args, None, true, limits);
     stage_check(&o, limits, "qpdf")?;
     Ok(serde_json::from_slice(&o.stdout).ok())
 }
 
-fn pack(bins: &Binaries, input: &Path, output: &Path, limits: &Limits, recompress: bool, linearize: bool) -> Result<bool> {
-    let mut args = vec!["--warning-exit-0".to_string(), "--object-streams=generate".to_string()];
+fn pack(
+    bins: &Binaries,
+    input: &Path,
+    output: &Path,
+    limits: &Limits,
+    recompress: bool,
+    linearize: bool,
+) -> Result<bool> {
+    let mut args = vec![
+        "--warning-exit-0".to_string(),
+        "--object-streams=generate".to_string(),
+    ];
     if recompress {
         args.push("--recompress-flate".into());
     }
@@ -197,7 +243,13 @@ fn pack(bins: &Binaries, input: &Path, output: &Path, limits: &Limits, recompres
     run_qpdf(bins, args, limits)
 }
 
-fn decrypt(bins: &Binaries, input: &Path, output: &Path, password: &str, limits: &Limits) -> Result<()> {
+fn decrypt(
+    bins: &Binaries,
+    input: &Path,
+    output: &Path,
+    password: &str,
+    limits: &Limits,
+) -> Result<()> {
     let bin = bins.require_qpdf()?;
     let first = password.split('\n').next().unwrap_or("");
     let args = vec![
@@ -215,12 +267,24 @@ fn decrypt(bins: &Binaries, input: &Path, output: &Path, password: &str, limits:
     Err(HyperError::code(ErrorCode::DecryptFailed))
 }
 
-pub fn verify_password(source: &Path, password: &str, timeout: Option<Duration>, bins: &Binaries) -> Result<bool> {
+pub fn verify_password(
+    source: &Path,
+    password: &str,
+    timeout: Option<Duration>,
+    bins: &Binaries,
+) -> Result<bool> {
     if !source.is_file() {
-        return Err(HyperError::new(ErrorCode::EngineError, format!("cannot read {}", source.display())));
+        return Err(HyperError::new(
+            ErrorCode::EngineError,
+            format!("cannot read {}", source.display()),
+        ));
     }
     let dir = tempfile::Builder::new().prefix("hyper-verify-").tempdir()?;
-    let limits = Limits { stage: timeout.unwrap_or(Duration::from_millis(60_000)), deadline: None, cancel: CancelToken::new() };
+    let limits = Limits {
+        stage: timeout.unwrap_or(Duration::from_millis(60_000)),
+        deadline: None,
+        cancel: CancelToken::new(),
+    };
     match decrypt(bins, source, &dir.path().join("dec.pdf"), password, &limits) {
         Ok(()) => Ok(true),
         Err(e) if e.code == ErrorCode::DecryptFailed => Ok(false),
@@ -231,7 +295,13 @@ pub fn verify_password(source: &Path, password: &str, timeout: Option<Duration>,
 fn requires_password(bins: &Binaries, input: &Path, limits: &Limits) -> Result<bool> {
     match bins.qpdf() {
         Some(bin) => {
-            let o = run::run(&bin, &["--requires-password".to_string(), arg(input)], None, false, limits);
+            let o = run::run(
+                &bin,
+                &["--requires-password".to_string(), arg(input)],
+                None,
+                false,
+                limits,
+            );
             stage_check(&o, limits, "qpdf")?;
             Ok(o.code == Some(0))
         }
@@ -242,7 +312,13 @@ fn requires_password(bins: &Binaries, input: &Path, limits: &Limits) -> Result<b
 fn report_json(bins: &Binaries, p: &Path, limits: &Limits) -> Result<Option<Value>> {
     qpdf_json(
         bins,
-        vec!["--json=2".into(), "--json-key=pages".into(), "--json-key=qpdf".into(), "--json-stream-data=none".into(), arg(p)],
+        vec![
+            "--json=2".into(),
+            "--json-key=pages".into(),
+            "--json-key=qpdf".into(),
+            "--json-stream-data=none".into(),
+            arg(p),
+        ],
         limits,
     )
 }
@@ -253,34 +329,69 @@ enum Withdraw {
     Failed,
 }
 
-fn withdraw_claim(bins: &Binaries, input: &Path, output: &Path, dir: &Path, limits: &Limits, linearize: bool) -> Result<Withdraw> {
+fn withdraw_claim(
+    bins: &Binaries,
+    input: &Path,
+    output: &Path,
+    dir: &Path,
+    limits: &Limits,
+    linearize: bool,
+) -> Result<Withdraw> {
     let object = |r: &str, data: bool| -> Result<Option<Value>> {
-        let id = if r == "trailer" { r.to_string() } else { r.trim_end_matches(" R").replace(' ', ",") };
-        let mut args = vec!["--json=2".to_string(), "--json-key=qpdf".to_string(), format!("--json-object={id}")];
+        let id = if r == "trailer" {
+            r.to_string()
+        } else {
+            r.trim_end_matches(" R").replace(' ', ",")
+        };
+        let mut args = vec![
+            "--json=2".to_string(),
+            "--json-key=qpdf".to_string(),
+            format!("--json-object={id}"),
+        ];
         if data {
-            args.extend(["--json-stream-data=inline".to_string(), "--decode-level=generalized".to_string()]);
+            args.extend([
+                "--json-stream-data=inline".to_string(),
+                "--decode-level=generalized".to_string(),
+            ]);
         } else {
             args.push("--json-stream-data=none".into());
         }
         args.push(arg(input));
-        let key = if r == "trailer" { r.to_string() } else { format!("obj:{r}") };
+        let key = if r == "trailer" {
+            r.to_string()
+        } else {
+            format!("obj:{r}")
+        };
         Ok(qpdf_json(bins, args, limits)?.and_then(|j| j.get("qpdf")?.get(1)?.get(key).cloned()))
     };
     let ref_of = |o: &Option<Value>, k: &str| -> Option<String> {
         let v = o.as_ref()?.get("value")?.get(k)?.as_str()?;
         let parts: Vec<&str> = v.split(' ').collect();
-        (parts.len() == 3 && parts[2] == "R" && parts[0].parse::<u64>().is_ok()).then(|| v.to_string())
+        (parts.len() == 3 && parts[2] == "R" && parts[0].parse::<u64>().is_ok())
+            .then(|| v.to_string())
     };
-    let Some(root) = ref_of(&object("trailer", false)?, "/Root") else { return Ok(Withdraw::Failed) };
-    let Some(meta_ref) = ref_of(&object(&root, false)?, "/Metadata") else { return Ok(Withdraw::Unchanged) };
-    let Some(meta) = object(&meta_ref, true)? else { return Ok(Withdraw::Failed) };
+    let Some(root) = ref_of(&object("trailer", false)?, "/Root") else {
+        return Ok(Withdraw::Failed);
+    };
+    let Some(meta_ref) = ref_of(&object(&root, false)?, "/Metadata") else {
+        return Ok(Withdraw::Unchanged);
+    };
+    let Some(meta) = object(&meta_ref, true)? else {
+        return Ok(Withdraw::Failed);
+    };
     let (Some(dict), Some(data)) = (
-        meta.get("stream").and_then(|s| s.get("dict")).and_then(Value::as_object),
-        meta.get("stream").and_then(|s| s.get("data")).and_then(Value::as_str),
+        meta.get("stream")
+            .and_then(|s| s.get("dict"))
+            .and_then(Value::as_object),
+        meta.get("stream")
+            .and_then(|s| s.get("data"))
+            .and_then(Value::as_str),
     ) else {
         return Ok(Withdraw::Failed);
     };
-    let Ok(raw) = base64::engine::general_purpose::STANDARD.decode(data) else { return Ok(Withdraw::Failed) };
+    let Ok(raw) = base64::engine::general_purpose::STANDARD.decode(data) else {
+        return Ok(Withdraw::Failed);
+    };
     let xmp: String = raw.iter().map(|&b| b as char).collect();
     let stripped = pdfa::strip_claim(&xmp);
     if stripped == xmp {
@@ -298,12 +409,20 @@ fn withdraw_claim(bins: &Binaries, input: &Path, output: &Path, dir: &Path, limi
     if fs::write(&update, body.to_string()).is_err() {
         return Ok(Withdraw::Failed);
     }
-    let mut args = vec!["--warning-exit-0".to_string(), format!("--update-from-json={}", arg(&update)), "--object-streams=generate".to_string()];
+    let mut args = vec![
+        "--warning-exit-0".to_string(),
+        format!("--update-from-json={}", arg(&update)),
+        "--object-streams=generate".to_string(),
+    ];
     if linearize {
         args.push("--linearize".into());
     }
     args.extend(["--compression-level=9".to_string(), arg(input), arg(output)]);
-    Ok(if run_qpdf(bins, args, limits)? && size(output) > 0 { Withdraw::Written } else { Withdraw::Failed })
+    Ok(if run_qpdf(bins, args, limits)? && size(output) > 0 {
+        Withdraw::Written
+    } else {
+        Withdraw::Failed
+    })
 }
 
 fn same_file(a: &Path, b: &Path) -> bool {
@@ -316,7 +435,9 @@ fn deliver(from: &Path, to: &Path) -> Result<()> {
     }
     let staging = to.with_file_name(format!(
         ".{}.hyper-tmp",
-        to.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+        to.file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default()
     ));
     fs::copy(from, &staging)?;
     fs::rename(&staging, to).inspect_err(|_| {
@@ -340,7 +461,9 @@ fn platform() -> String {
 }
 
 fn looks_like_pdf(bytes: &[u8]) -> bool {
-    bytes[..bytes.len().min(1024)].windows(5).any(|w| w == b"%PDF-")
+    bytes[..bytes.len().min(1024)]
+        .windows(5)
+        .any(|w| w == b"%PDF-")
 }
 
 fn raise_file_header(p: &Path, min_version: &str) -> Result<()> {
@@ -358,7 +481,10 @@ fn raise_file_header(p: &Path, min_version: &str) -> Result<()> {
 
 pub fn compress(input: &CompressInput) -> Result<CompressResult> {
     if input.source_path.as_os_str().is_empty() {
-        return Err(HyperError::new(ErrorCode::EngineError, "sourcePath is required"));
+        return Err(HyperError::new(
+            ErrorCode::EngineError,
+            "sourcePath is required",
+        ));
     }
     let bins = &input.binaries;
     let requested = resolve_options(input.preset, &input.options);
@@ -367,10 +493,17 @@ pub fn compress(input: &CompressInput) -> Result<CompressResult> {
     let password = input.password.clone().filter(|p| !p.is_empty());
     bins.worker()?;
     bins.check_qpdf()?;
-    let source_bytes = fs::read(&input.source_path)
-        .map_err(|e| HyperError::new(ErrorCode::EngineError, format!("cannot read {}: {e}", input.source_path.display())))?;
+    let source_bytes = fs::read(&input.source_path).map_err(|e| {
+        HyperError::new(
+            ErrorCode::EngineError,
+            format!("cannot read {}: {e}", input.source_path.display()),
+        )
+    })?;
     if !looks_like_pdf(&source_bytes) {
-        return Err(HyperError::new(ErrorCode::EngineError, "the input is not a PDF: no %PDF- header in its first 1024 bytes"));
+        return Err(HyperError::new(
+            ErrorCode::EngineError,
+            "the input is not a PDF: no %PDF- header in its first 1024 bytes",
+        ));
     }
     let original_size = source_bytes.len() as u64;
     let claimed = pdfa::detect(&source_bytes);
@@ -378,7 +511,10 @@ pub fn compress(input: &CompressInput) -> Result<CompressResult> {
 
     let limits = Limits {
         stage: input.stage_timeout.unwrap_or(DEFAULT_STAGE_TIMEOUT),
-        deadline: input.total_timeout.filter(|d| !d.is_zero()).map(|d| Instant::now() + d),
+        deadline: input
+            .total_timeout
+            .filter(|d| !d.is_zero())
+            .map(|d| Instant::now() + d),
         cancel: input.cancel.clone(),
     };
 
@@ -398,8 +534,14 @@ pub fn compress(input: &CompressInput) -> Result<CompressResult> {
         Some(p) if !p.as_os_str().is_empty() => p.clone(),
         _ => {
             let src = &input.source_path;
-            let stem = src.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-            let ext = src.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_else(|| ".pdf".into());
+            let stem = src
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let ext = src
+                .extension()
+                .map(|e| format!(".{}", e.to_string_lossy()))
+                .unwrap_or_else(|| ".pdf".into());
             src.with_file_name(format!("{stem}-compressed{ext}"))
         }
     };
@@ -438,26 +580,39 @@ pub fn compress(input: &CompressInput) -> Result<CompressResult> {
     let drv = run_driver(bins, &work_in, &drv_out, &tokens, &limits)?;
     limits.check()?;
     if !drv.ok && password.is_none() && requires_password(bins, &input.source_path, &limits)? {
-        return Err(HyperError::new(ErrorCode::DecryptFailed, "the PDF is encrypted and needs a password"));
+        return Err(HyperError::new(
+            ErrorCode::DecryptFailed,
+            "the PDF is encrypted and needs a password",
+        ));
     }
     if let Some(n) = &drv.note {
         warnings.push(n.clone());
     }
 
-    let make_report = |out: &Path, compressed: u64, warnings: &mut Vec<String>| -> Result<Option<Report>> {
-        if !want_report {
-            return Ok(None);
-        }
-        let (Some(before), Some(after)) = (report_json(bins, &work_in, &limits)?, report_json(bins, out, &limits)?) else {
-            warnings.push("report unavailable: the PDF structure could not be read".into());
-            return Ok(None);
+    let make_report =
+        |out: &Path, compressed: u64, warnings: &mut Vec<String>| -> Result<Option<Report>> {
+            if !want_report {
+                return Ok(None);
+            }
+            let (Some(before), Some(after)) = (
+                report_json(bins, &work_in, &limits)?,
+                report_json(bins, out, &limits)?,
+            ) else {
+                warnings.push("report unavailable: the PDF structure could not be read".into());
+                return Ok(None);
+            };
+            let r = report::build(
+                &before,
+                &after,
+                original_size,
+                compressed,
+                &report::image_notes(&drv.stderr),
+            );
+            if let ReportRequest::File(p) = &input.report {
+                fs::write(p, serde_json::to_string_pretty(&r).unwrap_or_default())?;
+            }
+            Ok(Some(r))
         };
-        let r = report::build(&before, &after, original_size, compressed, &report::image_notes(&drv.stderr));
-        if let ReportRequest::File(p) = &input.report {
-            fs::write(p, serde_json::to_string_pretty(&r).unwrap_or_default())?;
-        }
-        Ok(Some(r))
-    };
 
     if drv.ok && drv.signed {
         deliver(&input.source_path, &final_path)?;
@@ -486,12 +641,17 @@ pub fn compress(input: &CompressInput) -> Result<CompressResult> {
     if drv.ok {
         packed = Some(if skip_pack {
             drv_out.clone()
-        } else if pack(bins, &drv_out, &pack_out, &limits, false, options.linearize)? && size(&pack_out) > 0 {
+        } else if pack(bins, &drv_out, &pack_out, &limits, false, options.linearize)?
+            && size(&pack_out) > 0
+        {
             pack_out.clone()
         } else {
             drv_out.clone()
         });
-    } else if !skip_pack && pack(bins, &work_in, &pack_out, &limits, true, options.linearize)? && size(&pack_out) > 0 {
+    } else if !skip_pack
+        && pack(bins, &work_in, &pack_out, &limits, true, options.linearize)?
+        && size(&pack_out) > 0
+    {
         packed = Some(pack_out.clone());
     }
 
@@ -516,7 +676,9 @@ pub fn compress(input: &CompressInput) -> Result<CompressResult> {
                 let q = (lo + hi).div_euclid(2);
                 let mut o = base.clone();
                 o.image_quality = q;
-                let Some(c) = attempt(&o, &a_drv, &a_pack)? else { break };
+                let Some(c) = attempt(&o, &a_drv, &a_pack)? else {
+                    break;
+                };
                 let s = size(&c);
                 if s > 0 && s < smallest.1 {
                     fs::copy(&c, &keep_small)?;
@@ -535,7 +697,9 @@ pub fn compress(input: &CompressInput) -> Result<CompressResult> {
                     break;
                 }
                 limits.check()?;
-                let Some(c) = attempt(&rung, &a_drv, &a_pack)? else { break };
+                let Some(c) = attempt(&rung, &a_drv, &a_pack)? else {
+                    break;
+                };
                 let s = size(&c);
                 if s > 0 && s <= t {
                     fs::copy(&c, &keep_fit)?;
@@ -564,10 +728,19 @@ pub fn compress(input: &CompressInput) -> Result<CompressResult> {
     let mut claim_kept = false;
     if let (Some(level), false, true) = (&claimed, preserving, used_engine) {
         let withdrawn = dir.join("withdrawn.pdf");
-        let outcome = withdraw_claim(bins, &final_source, &withdrawn, dir, &limits, options.linearize)?;
+        let outcome = withdraw_claim(
+            bins,
+            &final_source,
+            &withdrawn,
+            dir,
+            &limits,
+            options.linearize,
+        )?;
         limits.check()?;
         match outcome {
-            Withdraw::Written if size(&withdrawn) > 0 && size(&withdrawn) < baseline => final_source = withdrawn,
+            Withdraw::Written if size(&withdrawn) > 0 && size(&withdrawn) < baseline => {
+                final_source = withdrawn
+            }
             Withdraw::Unchanged => {}
             _ => {
                 final_source = fallback.clone();
@@ -588,7 +761,11 @@ pub fn compress(input: &CompressInput) -> Result<CompressResult> {
 
     if preserving && final_source != input.source_path {
         let src = fs::read(&fallback)?;
-        let mut out = if final_source == fallback { src.clone() } else { fs::read(&final_source)? };
+        let mut out = if final_source == fallback {
+            src.clone()
+        } else {
+            fs::read(&final_source)?
+        };
         pdfa::restore_header(&src, &mut out);
         let staged = dir.join("final.pdf");
         fs::write(&staged, out)?;

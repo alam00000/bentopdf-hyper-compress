@@ -8,7 +8,10 @@ pub mod report;
 pub mod run;
 pub mod target;
 
-pub use engine::{compress, resolve_options, verify_password, Binaries, CompressInput, CompressResult, ReportRequest};
+pub use engine::{
+    Binaries, CompressInput, CompressResult, ReportRequest, compress, resolve_options,
+    verify_password,
+};
 pub use error::{ErrorCode, HyperError, Result};
 pub use options::Options;
 pub use pdfa::PdfaLevel;
