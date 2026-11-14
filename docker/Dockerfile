@@ -11,7 +11,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential cmake ninja-build pkg-config rsync \
     wget gnupg software-properties-common \
     && if [ "$(dpkg --print-architecture)" = arm64 ]; then \
-      curl -fsSL -o /tmp/llvm.sh https://apt.llvm.org/llvm.sh && bash /tmp/llvm.sh 23; \
+      curl -fsSL --retry 5 --retry-all-errors -o /tmp/llvm.sh https://apt.llvm.org/llvm.sh \
+      && for i in 1 2 3 4 5; do bash /tmp/llvm.sh 23 && break; [ "$i" = 5 ] && exit 1; sleep 30; done; \
     fi \
     && rm -rf /var/lib/apt/lists/*
 RUN git clone --depth 1 \

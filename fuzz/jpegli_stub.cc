@@ -19,4 +19,31 @@ bool HyperJpegliEncode(const uint8_t* src,
 
 void HyperJpegliFree(void*) {}
 
+bool HyperJpegliDecodeCmyk(const uint8_t* data,
+                           size_t len,
+                           int color_transform,
+                           uint8_t** out_buf,
+                           int* out_w,
+                           int* out_h,
+                           int* saw_adobe) {
+  return false;
+}
+
+bool HyperJpegliEncodeCmyk(const uint8_t* src,
+                           int width,
+                           int height,
+                           int quality,
+                           int adobe_marker,
+                           uint8_t** out_buf,
+                           size_t* out_len) {
+  return false;
+}
+
+bool HyperJpegliRepack(const uint8_t* data,
+                       size_t len,
+                       uint8_t** out_buf,
+                       size_t* out_len) {
+  return false;
+}
+
 }
