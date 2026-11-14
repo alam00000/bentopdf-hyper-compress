@@ -3,7 +3,7 @@ resolver = "2"
 members = ["hyper-compress", "hyper-compress-node", "hyper-compress-cli", "hyper-compress-server"]
 
 [workspace.package]
-version = "1.2.0"
+version = "1.2.1"
 edition = "2021"
 license = "AGPL-3.0-only"
 repository = "https://github.com/alam00000/bentopdf-hyper-compress"
