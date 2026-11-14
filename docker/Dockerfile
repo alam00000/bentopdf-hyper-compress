@@ -37,7 +37,7 @@ RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal \
     && cargo build --release --locked -p hyper-compress-cli -p hyper-compress-server --manifest-path rust/Cargo.toml \
     && cp rust/target/release/hyper rust/target/release/hyper-server cli/prebuilt/
 
-FROM node:22-slim AS app
+FROM node:25-slim AS app
 WORKDIR /engine
 COPY package.json package-lock.json tsconfig.json ./
 COPY sdk sdk
