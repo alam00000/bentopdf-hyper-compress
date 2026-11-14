@@ -5,7 +5,7 @@ members = ["hyper-compress", "hyper-compress-node", "hyper-compress-cli", "hyper
 [workspace.package]
 version = "1.2.1"
 edition = "2024"
-rust-version = "1.100"
+rust-version = "1.88"
 license = "AGPL-3.0-only"
 repository = "https://github.com/alam00000/bentopdf-hyper-compress"
 
