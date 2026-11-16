@@ -239,7 +239,12 @@ fn pack(
     if linearize {
         args.push("--linearize".into());
     }
-    args.extend(["--compression-level=9".to_string(), arg(input), arg(output)]);
+    args.extend([
+        "--newline-before-endstream".to_string(),
+        "--compression-level=9".to_string(),
+        arg(input),
+        arg(output),
+    ]);
     run_qpdf(bins, args, limits)
 }
 
@@ -417,7 +422,12 @@ fn withdraw_claim(
     if linearize {
         args.push("--linearize".into());
     }
-    args.extend(["--compression-level=9".to_string(), arg(input), arg(output)]);
+    args.extend([
+        "--newline-before-endstream".to_string(),
+        "--compression-level=9".to_string(),
+        arg(input),
+        arg(output),
+    ]);
     Ok(if run_qpdf(bins, args, limits)? && size(output) > 0 {
         Withdraw::Written
     } else {
