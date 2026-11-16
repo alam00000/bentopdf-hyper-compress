@@ -484,7 +484,7 @@ CPDF_Creator::Stage CPDF_Creator::WriteDoc_Stage4() {
       if (key == "Encrypt" || key == "Size" || key == "Filter" ||
           key == "Index" || key == "Length" || key == "Prev" || key == "W" ||
           key == "XRefStm" || key == "ID" || key == "DecodeParms" ||
-          key == "Type") {
+          key == "Type" || key == "Root" || key == "Info") {
         continue;
       }
       if (!archive_->WriteString(("/")) ||
@@ -495,16 +495,23 @@ CPDF_Creator::Stage CPDF_Creator::WriteDoc_Stage4() {
         return Stage::kInvalid;
       }
     }
-  } else {
+  }
+  {
     if (!archive_->WriteString("\r\n/Root ") ||
         !archive_->WriteDWord(document_->GetRoot()->GetObjNum()) ||
         !archive_->WriteString(" 0 R\r\n")) {
       return Stage::kInvalid;
     }
-    if (document_->GetInfo()) {
+    RetainPtr<CPDF_Dictionary> info = document_->GetInfo();
+    if (info && info->GetObjNum()) {
       if (!archive_->WriteString("/Info ") ||
-          !archive_->WriteDWord(document_->GetInfo()->GetObjNum()) ||
+          !archive_->WriteDWord(info->GetObjNum()) ||
           !archive_->WriteString(" 0 R\r\n")) {
+        return Stage::kInvalid;
+      }
+    } else if (info) {
+      if (!archive_->WriteString("/Info") ||
+          !info->WriteTo(archive_.get(), nullptr)) {
         return Stage::kInvalid;
       }
     }

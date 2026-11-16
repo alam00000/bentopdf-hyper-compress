@@ -4413,6 +4413,16 @@ class HyperImageRewrite {
 
       if (img_dict->KeyExist("SMask")) {
         preserved_smask_ref = img_dict->GetObjectFor("SMask");
+        RetainPtr<const CPDF_Dictionary> smask_dict =
+            img_dict->GetDictFor("SMask");
+        if (!smask_dict) {
+          RetainPtr<const CPDF_Stream> smask_stream =
+              img_dict->GetStreamFor("SMask");
+          smask_dict = smask_stream ? smask_stream->GetDict() : nullptr;
+        }
+        if (smask_dict && smask_dict->KeyExist("Matte")) {
+          return false;
+        }
       }
 
       if (img_dict->KeyExist("Mask")) {
@@ -7759,6 +7769,67 @@ void HyperDropDanglingRefs(CPDF_Document* doc) {
   }
 }
 
+void HyperRenumberRefsIn(CPDF_Document* doc, CPDF_Object* obj,
+                         const std::unordered_map<uint32_t, uint32_t>& map) {
+  if (!obj) return;
+  if (CPDF_Stream* st = obj->AsMutableStream()) {
+    HyperRenumberRefsIn(doc, st->GetMutableDict().Get(), map);
+    return;
+  }
+  auto renumber = [&](RetainPtr<CPDF_Object> v) -> uint32_t {
+    if (!v || !v->IsReference()) return 0;
+    auto it = map.find(v->AsReference()->GetRefObjNum());
+    return it == map.end() ? 0 : it->second;
+  };
+  if (CPDF_Dictionary* dict = obj->AsMutableDictionary()) {
+    std::vector<ByteString> keys;
+    {
+      CPDF_DictionaryLocker locker(dict);
+      for (const auto& it : locker) keys.push_back(it.first);
+    }
+    for (const ByteString& k : keys) {
+      RetainPtr<CPDF_Object> v = dict->GetMutableObjectFor(k.AsStringView());
+      if (uint32_t n = renumber(v))
+        dict->SetNewFor<CPDF_Reference>(k, doc, n);
+      else if (v && !v->IsReference())
+        HyperRenumberRefsIn(doc, v.Get(), map);
+    }
+  } else if (CPDF_Array* arr = obj->AsMutableArray()) {
+    for (size_t i = 0; i < arr->size(); ++i) {
+      RetainPtr<CPDF_Object> v = arr->GetMutableObjectAt(i);
+      if (uint32_t n = renumber(v))
+        arr->SetNewAt<CPDF_Reference>(i, doc, n);
+      else if (v && !v->IsReference())
+        HyperRenumberRefsIn(doc, v.Get(), map);
+    }
+  }
+}
+
+void HyperRenumberObjects(CPDF_Document* doc) {
+  if (!doc || (doc->GetParser() && doc->GetParser()->GetEncryptDict()))
+    return;
+  doc->GetInfo();
+  const uint32_t last = doc->GetLastObjNum();
+  std::vector<uint32_t> live;
+  for (uint32_t i = 1; i <= last; ++i) {
+    if (doc->GetOrParseIndirectObject(i)) live.push_back(i);
+  }
+  if (live.empty() || last <= 2 * live.size()) return;
+  std::unordered_map<uint32_t, uint32_t> map;
+  for (size_t k = 0; k < live.size(); ++k) {
+    if (live[k] != k + 1) map[live[k]] = static_cast<uint32_t>(k + 1);
+  }
+  for (uint32_t i : live)
+    HyperRenumberRefsIn(doc, doc->GetOrParseIndirectObject(i).Get(), map);
+  for (size_t k = 0; k < live.size(); ++k) {
+    const uint32_t from = live[k], to = static_cast<uint32_t>(k + 1);
+    if (from == to) continue;
+    RetainPtr<CPDF_Object> obj = doc->GetOrParseIndirectObject(from);
+    doc->DeleteIndirectObject(from);
+    doc->ReplaceIndirectObjectIfHigherGeneration(to, std::move(obj));
+  }
+}
+
 void HyperCoalescePageContents(CPDF_Document* doc) {
   if (!doc)
     return;
@@ -8690,6 +8761,8 @@ HyperCompress_Execute(FPDF_DOCUMENT document, FPDF_COMPRESS_OPTIONS h) {
 
   HyperObjectDedup dedup_pass(doc, *opts);
   dedup_pass.Run();
+
+  HyperRenumberObjects(doc);
 
   return 1;
 }
