@@ -13,6 +13,7 @@ Full license texts ship inside the component trees.
 | Leptonica | Leptonica License (BSD-style) | `core/third_party/leptonica` |
 | jbig2enc | Apache-2.0 | `core/third_party/jbig2enc` |
 | AFDKO (subset) | Apache-2.0 | `core/third_party/afdko` |
+| ISO Coated v2 300% ICC profile (basICColor GmbH) | zlib | `core/src/hyper_generic_cmyk_icc.h` (licence text in the file) |
 | DM Sans | SIL Open Font License 1.1 | `web/fonts` |
 | Rust crates linked into the Node.js addon, the `hyper` CLI and `hyper-server` (napi, serde, serde_json, base64, tempfile, tiny_http and their dependencies; the full list is `rust/Cargo.lock`) | MIT, Apache-2.0, ISC, Unlicense or Unicode-3.0, each crate under its own terms | crates.io, pinned by `rust/Cargo.lock` |
 
