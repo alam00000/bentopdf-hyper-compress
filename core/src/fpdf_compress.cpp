@@ -1207,6 +1207,10 @@ class HyperFontOptimize {
         return;
       }
       d->SetNewFor<CPDF_Name>(key, tag + StripSubsetPrefix(cur));
+      if (d->KeyExist("FontName")) {
+        d->RemoveFor("CIDSet");
+        d->RemoveFor("CharSet");
+      }
     };
     retag(font_dict, "BaseFont");
     if (font_dict->GetNameFor("Subtype") == "Type0") {
