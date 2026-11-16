@@ -3,7 +3,7 @@ resolver = "3"
 members = ["hyper-compress", "hyper-compress-node", "hyper-compress-cli", "hyper-compress-server"]
 
 [workspace.package]
-version = "1.2.1"
+version = "1.2.2"
 edition = "2024"
 rust-version = "1.88"
 license = "AGPL-3.0-only"
