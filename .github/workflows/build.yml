@@ -68,6 +68,7 @@ jobs:
         with:
           name: macos-arm64-build
           path: |
+            wasm/prebuilt/libpdfium.a
             wasm/out/hyper-compress.js
             wasm/out/hyper-compress.wasm
             cli/prebuilt/hpdf-worker
