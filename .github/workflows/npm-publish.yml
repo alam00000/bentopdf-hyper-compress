@@ -98,7 +98,7 @@ jobs:
             bash scripts/pack-wasm-npm.sh
           fi
           for d in hyper-compress-darwin-arm64 hyper-compress-linux-x64 hyper-compress-linux-arm64 hyper-compress-win32-x64; do
-            cp LICENSE "packages/npm/$d/LICENSE"
+            cp LICENSE NOTICE.md THIRD_PARTY_LICENSES "packages/npm/$d/"
           done
       - name: publish engine packages
         run: |

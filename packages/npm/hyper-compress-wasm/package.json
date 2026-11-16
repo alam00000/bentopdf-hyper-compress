@@ -17,7 +17,9 @@
     "index.js",
     "index.d.ts",
     "lib",
-    "engine"
+    "engine",
+    "NOTICE.md",
+    "THIRD_PARTY_LICENSES"
   ],
   "engines": {
     "node": ">=22"

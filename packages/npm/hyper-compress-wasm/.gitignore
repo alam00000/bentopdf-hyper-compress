@@ -1,4 +1,6 @@
 engine/
 lib/
 LICENSE
+NOTICE.md
+THIRD_PARTY_LICENSES
 *.tgz

@@ -24,6 +24,6 @@ for f in options presets pdfa errors target; do
 done
 
 cp "$ROOT/wasm/out/hyper-compress.js" "$ROOT/wasm/out/hyper-compress.wasm" "$PKG/engine/"
-cp "$ROOT/LICENSE" "$PKG/LICENSE"
+cp "$ROOT/LICENSE" "$ROOT/NOTICE.md" "$ROOT/THIRD_PARTY_LICENSES" "$PKG/"
 
 echo "assembled $PKG"

@@ -57,12 +57,15 @@ jobs:
       - name: package
         run: |
           mkdir -p out
+          cp NOTICE.md THIRD_PARTY_LICENSES cli/prebuilt/
+          cp NOTICE.md THIRD_PARTY_LICENSES sdk/native/lib/
+          cp NOTICE.md THIRD_PARTY_LICENSES wasm/out/
           tar -C cli/prebuilt -czf "out/hyper-compress-${GITHUB_REF_NAME}-macos-arm64.tar.gz" \
-            hpdf-worker hpdf-render qpdf hyper-compress.node
+            hpdf-worker hpdf-render qpdf hyper-compress.node NOTICE.md THIRD_PARTY_LICENSES
           tar -C sdk/native/lib -czf "out/libhypercompress-${GITHUB_REF_NAME}-macos-arm64.tar.gz" \
-            libhypercompress.dylib
+            libhypercompress.dylib NOTICE.md THIRD_PARTY_LICENSES
           tar -C wasm/out -czf "out/hyper-compress-${GITHUB_REF_NAME}-wasm.tar.gz" \
-            hyper-compress.js hyper-compress.wasm
+            hyper-compress.js hyper-compress.wasm NOTICE.md THIRD_PARTY_LICENSES
       - uses: actions/upload-artifact@v7
         with:
           name: macos-arm64
@@ -140,8 +143,9 @@ jobs:
       - name: package
         run: |
           mkdir -p out
+          cp NOTICE.md THIRD_PARTY_LICENSES cli/prebuilt/
           tar -C cli/prebuilt -czf "out/hyper-compress-${GITHUB_REF_NAME}-linux-${{ matrix.arch }}.tar.gz" \
-            hpdf-worker hpdf-render qpdf hyper-compress.node
+            hpdf-worker hpdf-render qpdf hyper-compress.node NOTICE.md THIRD_PARTY_LICENSES
       - uses: actions/upload-artifact@v7
         with:
           name: linux-${{ matrix.arch }}
@@ -258,10 +262,11 @@ jobs:
         shell: bash
         run: |
           mkdir -p out
+          cp NOTICE.md THIRD_PARTY_LICENSES cli/prebuilt/
           tar -C cli/prebuilt -czf "out/hyper-compress-${GITHUB_REF_NAME}-windows-x64.tar.gz" \
             hpdf-worker.exe hpdf-render.exe qpdf.exe hyper-compress.node qpdf30.dll concrt140.dll \
             msvcp140.dll msvcp140_1.dll msvcp140_2.dll msvcp140_atomic_wait.dll \
-            msvcp140_codecvt_ids.dll vcruntime140.dll vcruntime140_1.dll
+            msvcp140_codecvt_ids.dll vcruntime140.dll vcruntime140_1.dll NOTICE.md THIRD_PARTY_LICENSES
       - uses: actions/upload-artifact@v7
         with:
           name: windows-x64

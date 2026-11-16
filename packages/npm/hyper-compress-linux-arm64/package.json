@@ -14,7 +14,9 @@
     "arm64"
   ],
   "files": [
-    "bin"
+    "bin",
+    "NOTICE.md",
+    "THIRD_PARTY_LICENSES"
   ],
   "libc": [
     "glibc"

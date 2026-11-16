@@ -47,7 +47,8 @@
   "files": [
     "dist/sdk",
     "dist/cli",
-    "NOTICE.md"
+    "NOTICE.md",
+    "THIRD_PARTY_LICENSES"
   ],
   "exports": {
     ".": {

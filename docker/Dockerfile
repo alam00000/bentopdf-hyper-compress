@@ -59,6 +59,7 @@ COPY web/fonts web/fonts
 COPY web/icons web/icons
 COPY web/images web/images
 COPY docker/entrypoint.sh /entrypoint.sh
+COPY LICENSE NOTICE.md THIRD_PARTY_LICENSES /usr/share/doc/hyper-compress/
 COPY --from=native /engine/cli/prebuilt/hpdf-worker /engine/cli/prebuilt/hpdf-render /engine/cli/prebuilt/hyper /engine/cli/prebuilt/hyper-server cli/prebuilt/
 ENV HYPER_QPDF=/usr/bin/qpdf
 USER hyper
