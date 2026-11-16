@@ -1,4 +1,4 @@
-FROM ubuntu:24.04 AS native
+FROM ubuntu:25.10 AS native
 RUN if [ "$(dpkg --print-architecture)" = amd64 ]; then \
       printf '%s\n' http://mirrors.edge.kernel.org/ubuntu/ http://mirrors.mit.edu/ubuntu/ http://mirror.math.princeton.edu/pub/ubuntu/ http://azure.archive.ubuntu.com/ubuntu/ http://archive.ubuntu.com/ubuntu/ > /etc/apt/mirrors.txt; \
     else \
