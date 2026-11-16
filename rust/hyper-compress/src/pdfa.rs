@@ -58,11 +58,17 @@ pub fn parse_xmp(xmp: &str) -> Option<PdfaLevel> {
 }
 
 pub fn detect(bytes: &[u8]) -> Option<PdfaLevel> {
-    let start = find(bytes, b"<?xpacket", 0)?;
-    let end = find(bytes, b"<?xpacket end", start).unwrap_or(bytes.len());
-    let stop = end.min(start + MAX_XMP_BYTES);
-    let text: String = bytes[start..stop].iter().map(|&b| b as char).collect();
-    parse_xmp(&text)
+    let mut from = 0;
+    while let Some(start) = find(bytes, b"<?xpacket", from) {
+        let end = find(bytes, b"<?xpacket end", start + 1).unwrap_or(bytes.len());
+        let stop = end.min(start + MAX_XMP_BYTES);
+        let text: String = bytes[start..stop].iter().map(|&b| b as char).collect();
+        if let Some(level) = parse_xmp(&text) {
+            return Some(level);
+        }
+        from = end + 1;
+    }
+    None
 }
 
 pub fn strip_claim(xmp: &str) -> String {
@@ -216,6 +222,20 @@ mod tests {
         let s = strip_claim(xmp);
         assert!(!s.contains("pdfaid"), "{s}");
         assert!(s.contains("rdf:Description"));
+    }
+
+    #[test]
+    fn detects_claim_in_a_later_packet() {
+        let bytes = b"<?xpacket begin=''?><x:xmpmeta><dc:title>image</dc:title></x:xmpmeta><?xpacket end='w'?> \
+            <?xpacket begin=''?><rdf:Description pdfaid:part=\"1\" pdfaid:conformance=\"B\"/><?xpacket end='w'?>";
+        assert_eq!(
+            detect(bytes),
+            Some(PdfaLevel {
+                part: 1,
+                conformance: "b".into()
+            })
+        );
+        assert_eq!(detect(b"<?xpacket begin=''?><x/><?xpacket end='w'?>"), None);
     }
 
     #[test]
