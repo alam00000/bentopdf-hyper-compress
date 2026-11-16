@@ -29,7 +29,7 @@ class ObjectTreeTraverser {
       : document_(document) {
     const CPDF_Dictionary* root = document_->GetRoot();
     RetainPtr<const CPDF_Dictionary> info =
-        const_cast<CPDF_Document*>(document_.Get())->GetInfo();
+        const_cast<CPDF_Document*>(document)->GetInfo();
     for (const CPDF_Dictionary* top : {root, info.Get()}) {
       if (!top || pdfium::Contains(seen_objects_, top)) {
         continue;
