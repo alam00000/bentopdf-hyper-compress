@@ -4420,9 +4420,10 @@ class HyperImageRewrite {
         if (cs && cs->size() >= 2) {
           const ByteString fam = cs->GetByteStringAt(0);
           RetainPtr<const CPDF_Object> base = cs->GetDirectObjectAt(1);
-          if ((fam == "Indexed" || fam == "I") &&
-              !(base && base->IsName() &&
-                base->GetString().First(6) == "Device")) {
+          const bool device_base = base && base->IsName() &&
+                                   base->GetString().First(6) == "Device";
+          if (fam == "CalRGB" || fam == "CalGray" || fam == "Lab" ||
+              ((fam == "Indexed" || fam == "I") && !device_base)) {
             return false;
           }
         }
