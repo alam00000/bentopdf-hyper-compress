@@ -4415,6 +4415,19 @@ class HyperImageRewrite {
         }
       }
 
+      if (opts_.pdfa_mode) {
+        RetainPtr<const CPDF_Array> cs = img_dict->GetArrayFor("ColorSpace");
+        if (cs && cs->size() >= 2) {
+          const ByteString fam = cs->GetByteStringAt(0);
+          RetainPtr<const CPDF_Object> base = cs->GetDirectObjectAt(1);
+          if ((fam == "Indexed" || fam == "I") &&
+              !(base && base->IsName() &&
+                base->GetString().First(6) == "Device")) {
+            return false;
+          }
+        }
+      }
+
       if (img_dict->KeyExist("SMask")) {
         preserved_smask_ref = img_dict->GetObjectFor("SMask");
         RetainPtr<const CPDF_Dictionary> smask_dict =
