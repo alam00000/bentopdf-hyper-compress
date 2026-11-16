@@ -7806,19 +7806,57 @@ void HyperRenumberRefsIn(CPDF_Document* doc, CPDF_Object* obj,
 }
 
 void HyperRenumberObjects(CPDF_Document* doc) {
-  if (!doc || (doc->GetParser() && doc->GetParser()->GetEncryptDict()))
+  if (!doc || !doc->GetRoot() ||
+      (doc->GetParser() && doc->GetParser()->GetEncryptDict()))
     return;
-  doc->GetInfo();
-  const uint32_t last = doc->GetLastObjNum();
-  std::vector<uint32_t> live;
-  for (uint32_t i = 1; i <= last; ++i) {
-    if (doc->GetOrParseIndirectObject(i)) live.push_back(i);
+  RetainPtr<CPDF_Dictionary> info = doc->GetInfo();
+  std::set<uint32_t> reach;
+  std::vector<RetainPtr<const CPDF_Object>> stack;
+  auto visit = [&](RetainPtr<const CPDF_Object> o) {
+    if (!o) return;
+    if (const CPDF_Reference* r = o->AsReference()) {
+      const uint32_t n = r->GetRefObjNum();
+      if (!reach.insert(n).second) return;
+      stack.push_back(doc->GetOrParseIndirectObject(n));
+      return;
+    }
+    stack.push_back(std::move(o));
+  };
+  for (RetainPtr<const CPDF_Object> top :
+       {RetainPtr<const CPDF_Object>(doc->GetRoot()),
+        RetainPtr<const CPDF_Object>(info)}) {
+    if (!top) continue;
+    if (top->GetObjNum()) reach.insert(top->GetObjNum());
+    stack.push_back(top);
   }
-  if (live.empty() || last <= 2 * live.size()) return;
+  while (!stack.empty()) {
+    RetainPtr<const CPDF_Object> o = std::move(stack.back());
+    stack.pop_back();
+    if (!o) continue;
+    if (const CPDF_Stream* st = o->AsStream()) {
+      visit(st->GetDict());
+    } else if (const CPDF_Dictionary* d = o->AsDictionary()) {
+      CPDF_DictionaryLocker locker(d);
+      for (const auto& it : locker) visit(it.second);
+    } else if (const CPDF_Array* a = o->AsArray()) {
+      CPDF_ArrayLocker locker(a);
+      for (const auto& v : locker) visit(v);
+    }
+  }
+  std::vector<uint32_t> live;
+  for (uint32_t n : reach) {
+    if (doc->GetIndirectObject(n)) live.push_back(n);
+  }
+  if (live.empty() || live.back() <= 2 * live.size()) return;
   std::unordered_map<uint32_t, uint32_t> map;
   for (size_t k = 0; k < live.size(); ++k) {
     if (live[k] != k + 1) map[live[k]] = static_cast<uint32_t>(k + 1);
   }
+  std::vector<uint32_t> unreachable;
+  for (const auto& it : *doc) {
+    if (!reach.count(it.first)) unreachable.push_back(it.first);
+  }
+  for (uint32_t n : unreachable) doc->DeleteIndirectObject(n);
   for (uint32_t i : live)
     HyperRenumberRefsIn(doc, doc->GetOrParseIndirectObject(i).Get(), map);
   for (size_t k = 0; k < live.size(); ++k) {
