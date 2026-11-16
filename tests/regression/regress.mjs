@@ -7,7 +7,7 @@ import { sh, renderPages, aggregateFidelity, checkValidity, textSimilarity, judg
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '..', '..');
 const CLI = join(ROOT, 'dist', 'cli', 'bin', 'hyper.js');
-const WORKER = join(ROOT, 'cli', 'prebuilt', 'hpdf-worker');
+const WORKER = join(ROOT, 'cli', 'prebuilt', process.platform === 'win32' ? 'hpdf-worker.exe' : 'hpdf-worker');
 const FAILSET = join(HERE, 'failset');
 const REMOTE = join(HERE, 'remote');
 const PRESETS = ['lossless', 'low', 'medium', 'high'];
