@@ -129,6 +129,14 @@ jobs:
             if [ -f "rust/target/release/$f" ]; then cp "rust/target/release/$f" cli/prebuilt/hyper-compress.node; fi
           done
           test -f cli/prebuilt/hyper-compress.node
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: regression failset
+        run: |
+          sudo apt-get install -y poppler-utils mupdf-tools qpdf
+          npm ci --no-audit --no-fund
+          make regress
       - name: package
         run: |
           mkdir -p out
@@ -235,6 +243,17 @@ jobs:
             if [ -f "rust/target/release/$f" ]; then cp "rust/target/release/$f" cli/prebuilt/hyper-compress.node; fi
           done
           test -f cli/prebuilt/hyper-compress.node
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: regression failset
+        shell: bash
+        run: |
+          choco install -y --no-progress poppler mupdf qpdf
+          npm ci --no-audit --no-fund
+          npm run --silent build
+          python tests/regression/fetch.py
+          node tests/regression/regress.mjs
       - name: package
         shell: bash
         run: |
