@@ -190,5 +190,11 @@
     "category": "text",
     "presets": "lossless,low,medium,high",
     "reasons": "unreadable"
+  },
+  {
+    "file": "shared-inline-forms.pdf",
+    "category": "mixed",
+    "presets": "lossless,low,medium,high",
+    "reasons": "run-failed (hang)"
   }
 ]

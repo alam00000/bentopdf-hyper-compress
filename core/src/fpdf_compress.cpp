@@ -8351,8 +8351,7 @@ class HyperIccFlattener {
   void VisitResources(RetainPtr<CPDF_Dictionary> resources) {
     if (!resources)
       return;
-    const uint32_t objnum = resources->GetObjNum();
-    if (objnum != 0 && !visited_.insert(objnum).second)
+    if (!visited_.insert(resources.Get()).second)
       return;
 
     RetainPtr<CPDF_Dictionary> cs = resources->GetMutableDictFor("ColorSpace");
@@ -8466,7 +8465,7 @@ class HyperIccFlattener {
   const CompressOptions& opts_;
   size_t min_profile_bytes_ = kDefaultMinProfileBytes;
   int flattened_ = 0;
-  std::unordered_set<uint32_t> visited_;
+  std::unordered_set<const CPDF_Dictionary*> visited_;
 };
 
 }
