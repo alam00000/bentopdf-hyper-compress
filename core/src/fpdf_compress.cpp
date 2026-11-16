@@ -7782,6 +7782,16 @@ void HyperCoalescePageContents(CPDF_Document* doc) {
       auto acc = pdfium::MakeRetain<CPDF_StreamAcc>(pdfium::WrapRetain(s));
       acc->LoadAllDataFiltered();
       pdfium::span<const uint8_t> span = acc->GetSpan();
+      if (s->GetDict()->KeyExist("Filter") && span.size() == s->GetRawSize()) {
+        auto raw = pdfium::MakeRetain<CPDF_StreamAcc>(pdfium::WrapRetain(s));
+        raw->LoadAllDataRaw();
+        pdfium::span<const uint8_t> raw_span = raw->GetSpan();
+        if (std::equal(span.begin(), span.end(), raw_span.begin(),
+                       raw_span.end())) {
+          ok = false;
+          break;
+        }
+      }
       if (!span.empty()) {
         merged.write(reinterpret_cast<const char*>(span.data()),
                      static_cast<std::streamsize>(span.size()));

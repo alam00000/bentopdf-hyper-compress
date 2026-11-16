@@ -9,7 +9,9 @@ Thanks for wanting to help. Two things to know before your first PR:
    contributors: see [CCLA.md](CCLA.md).
 2. **Bug fixes come with their PDF.** The regression suite is a directory of
    documents that each broke the engine once. If you fix a bug, add the
-   reproducing file to `tests/regression/failset/` so it stays fixed.
+   reproducing file to `tests/regression/failset/` so it stays fixed. A file
+   we may not redistribute goes in `tests/regression/remote.csv` instead, with
+   its public URL and SHA-256; `make regress` downloads it.
 
 ## Getting set up
 

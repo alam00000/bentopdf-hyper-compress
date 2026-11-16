@@ -38,6 +38,14 @@ jobs:
           test -f cli/prebuilt/hyper-compress.node
       - name: harden
         run: scripts/harden.sh
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: regression failset
+        run: |
+          brew install poppler mupdf-tools qpdf
+          npm ci --no-audit --no-fund
+          make regress
       - name: build wasm
         run: |
           git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$HOME/emsdk"

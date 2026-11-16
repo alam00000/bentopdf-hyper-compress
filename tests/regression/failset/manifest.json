@@ -166,5 +166,29 @@
     "category": "image-heavy",
     "presets": "medium,high",
     "reasons": "severe-visual-degradation"
+  },
+  {
+    "file": "govdocs005-90bdb8a03f08.pdf",
+    "category": "image-heavy",
+    "presets": "low,medium,high",
+    "reasons": "severe-visual-degradation"
+  },
+  {
+    "file": "govdocs005-32fe558626d0.pdf",
+    "category": "forms",
+    "presets": "low",
+    "reasons": "severe-visual-degradation"
+  },
+  {
+    "file": "govdocs005-14295fbf82ee.pdf",
+    "category": "forms",
+    "presets": "low",
+    "reasons": "severe-visual-degradation"
+  },
+  {
+    "file": "empty-flate-content.pdf",
+    "category": "text",
+    "presets": "lossless,low,medium,high",
+    "reasons": "unreadable"
   }
 ]

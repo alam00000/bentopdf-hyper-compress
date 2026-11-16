@@ -1,6 +1,6 @@
 import { readdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { join, dirname, resolve } from 'node:path';
+import { join, dirname, resolve, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sh, renderPages, aggregateFidelity, checkValidity, textSimilarity, judgeCell, withTmpDir } from './lib.mjs';
 
@@ -9,6 +9,7 @@ const ROOT = resolve(HERE, '..', '..');
 const CLI = join(ROOT, 'dist', 'cli', 'bin', 'hyper.js');
 const WORKER = join(ROOT, 'cli', 'prebuilt', 'hpdf-worker');
 const FAILSET = join(HERE, 'failset');
+const REMOTE = join(HERE, 'remote');
 const PRESETS = ['lossless', 'low', 'medium', 'high'];
 
 if (!existsSync(WORKER)) {
@@ -21,16 +22,19 @@ if (!existsSync(CLI)) {
 }
 
 const filter = process.argv[2];
-const files = (await readdir(FAILSET))
-  .filter((f) => f.endsWith('.pdf') && (!filter || f.includes(filter)))
-  .sort();
+const dirs = [FAILSET, ...(existsSync(REMOTE) ? [REMOTE] : [])];
+const files = (await Promise.all(dirs.map(async (d) => (await readdir(d)).map((f) => join(d, f)))))
+  .flat()
+  .filter((p) => p.endsWith('.pdf') && (!filter || basename(p).includes(filter)))
+  .sort((a, b) => basename(a).localeCompare(basename(b)));
+if (!existsSync(REMOTE)) console.log('regress: tests/regression/remote missing, run tests/regression/fetch.py to include remote.csv');
 
 let failPairs = 0;
 const failFiles = new Set();
 const failures = [];
 
-for (const f of files) {
-  const src = join(FAILSET, f);
+for (const src of files) {
+  const f = basename(src);
   const inPages = await renderPages(src, { dpi: 100, maxPages: 6 });
   if (!inPages) {
     console.log(`${f}: source not renderable, skipping`);

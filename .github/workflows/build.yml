@@ -51,6 +51,10 @@ jobs:
           npm ci --no-audit --no-fund
           npm test
           cargo test --workspace --locked --manifest-path rust/Cargo.toml
+      - name: regression failset
+        run: |
+          brew install poppler mupdf-tools qpdf
+          make regress
       - name: build wasm
         run: |
           git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$HOME/emsdk"

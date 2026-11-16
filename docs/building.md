@@ -231,7 +231,7 @@ docker run -d -p 8080:8080 hyper-compress
 |---|---|
 | `make check` | type check, lint, the Node.js tests and the version check |
 | `cargo test --workspace --manifest-path rust/Cargo.toml` | the Rust tests for all four crates |
-| `make regress` | every PDF in `tests/regression/failset` with every preset; each file there once exposed a real bug |
+| `make regress` | every PDF in `tests/regression/failset`, plus the files `tests/regression/remote.csv` downloads, with every preset; each one once exposed a real bug |
 | `make bench CORPUS=path/to/folder` | compresses a folder of PDFs and writes `bench/results.json` |
 | `make fuzz` | builds the libFuzzer harness and fuzzes for 60 seconds; needs LLVM clang (`brew install llvm` on macOS) |
 | `make smoke PDF=input.pdf` | one quick compression through the built SDK |

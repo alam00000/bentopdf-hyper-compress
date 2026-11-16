@@ -525,7 +525,7 @@ make fuzz                       # libFuzzer harness
 
 `make regress` is the gate for bug fixes.
 
-Every PDF in `tests/regression/failset/` represents a file that previously exposed a bug. The suite checks validity, pixel fidelity, and text-layer survival across every relevant preset.
+Every PDF in `tests/regression/failset/`, and every file listed in `tests/regression/remote.csv` (downloaded from its public source), represents a file that previously exposed a bug. The suite checks validity, pixel fidelity, and text-layer survival across every relevant preset.
 
 A clean run reports zero failing pairs.
 

@@ -31,6 +31,7 @@ verify:
 
 regress:
 	npm run --silent build
+	python3 tests/regression/fetch.py
 	node tests/regression/regress.mjs
 
 bench:

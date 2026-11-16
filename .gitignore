@@ -40,3 +40,4 @@ core/build/llvm-shim/
 rust/target/
 cli/prebuilt/hyper-compress.node
 __pycache__/
+tests/regression/remote/
