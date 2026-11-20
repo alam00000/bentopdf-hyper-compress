@@ -7527,10 +7527,12 @@ class HyperConvertToBitmap {
   FPDF_FORMHANDLE form_handle_ = nullptr;
 };
 
-static bool FieldTreeHasCompletedSig(const CPDF_Dictionary* field,
-                                     const ByteString& inherited_ft,
-                                     int depth) {
-  if (!field || depth > 32)
+static bool FieldTreeHasCompletedSig(
+    const CPDF_Dictionary* field,
+    const ByteString& inherited_ft,
+    int depth,
+    std::unordered_set<const CPDF_Dictionary*>* visited) {
+  if (!field || depth > 32 || !visited->insert(field).second)
     return false;
   const ByteString ft =
       field->KeyExist("FT") ? field->GetNameFor("FT") : inherited_ft;
@@ -7550,7 +7552,7 @@ static bool FieldTreeHasCompletedSig(const CPDF_Dictionary* field,
     CPDF_ArrayLocker locker(std::move(kids));
     for (auto& kid : locker) {
       RetainPtr<const CPDF_Dictionary> kd = kid->GetDict();
-      if (kd && FieldTreeHasCompletedSig(kd.Get(), ft, depth + 1))
+      if (kd && FieldTreeHasCompletedSig(kd.Get(), ft, depth + 1, visited))
         return true;
     }
   }
@@ -7691,11 +7693,12 @@ bool HyperDocIsSigned(CPDF_Document* doc) {
   RetainPtr<const CPDF_Array> fields = acro_form->GetArrayFor("Fields");
   if (!fields)
     return false;
+  std::unordered_set<const CPDF_Dictionary*> visited;
   CPDF_ArrayLocker locker(std::move(fields));
   for (auto& field : locker) {
     RetainPtr<const CPDF_Dictionary> field_dict = field->GetDict();
     if (field_dict &&
-        FieldTreeHasCompletedSig(field_dict.Get(), ByteString(), 0))
+        FieldTreeHasCompletedSig(field_dict.Get(), ByteString(), 0, &visited))
       return true;
   }
   return false;
